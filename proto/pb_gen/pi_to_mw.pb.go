@@ -30,7 +30,10 @@ type PiToMw struct {
 	IsNewRobot *bool `protobuf:"varint,4,req,name=is_new_robot,json=isNewRobot" json:"is_new_robot,omitempty"`
 	// MACアドレス(NIC由来)。各ロボットの基板を一意に識別し、モータ個体差の
 	// 管理に使う。"aa:bb:cc:dd:ee:ff" 形式。取得できない場合は未設定。
-	MacAddress    *string `protobuf:"bytes,5,opt,name=mac_address,json=macAddress" json:"mac_address,omitempty"`
+	MacAddress *string `protobuf:"bytes,5,opt,name=mac_address,json=macAddress" json:"mac_address,omitempty"`
+	// RACOON-Pi2 のバージョン (例 "v6.2.3")。開発ビルドでは "(devel)"/"unknown"
+	// などになる場合がある。RAVEN の Robot Status ペインで表示する。
+	Version       *string `protobuf:"bytes,6,opt,name=version" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -96,6 +99,13 @@ func (x *PiToMw) GetIsNewRobot() bool {
 func (x *PiToMw) GetMacAddress() string {
 	if x != nil && x.MacAddress != nil {
 		return *x.MacAddress
+	}
+	return ""
+}
+
+func (x *PiToMw) GetVersion() string {
+	if x != nil && x.Version != nil {
+		return *x.Version
 	}
 	return ""
 }
@@ -348,7 +358,7 @@ var File_pi_to_mw_proto protoreflect.FileDescriptor
 
 const file_pi_to_mw_proto_rawDesc = "" +
 	"\n" +
-	"\x0epi_to_mw.proto\"\xc9\x01\n" +
+	"\x0epi_to_mw.proto\"\xe3\x01\n" +
 	"\x06PiToMw\x122\n" +
 	"\rrobots_status\x18\x01 \x02(\v2\r.Robot_StatusR\frobotsStatus\x12-\n" +
 	"\vball_status\x18\x02 \x02(\v2\f.Ball_StatusR\n" +
@@ -357,7 +367,8 @@ const file_pi_to_mw_proto_rawDesc = "" +
 	"\fis_new_robot\x18\x04 \x02(\bR\n" +
 	"isNewRobot\x12\x1f\n" +
 	"\vmac_address\x18\x05 \x01(\tR\n" +
-	"macAddress\"\x9f\x03\n" +
+	"macAddress\x12\x18\n" +
+	"\aversion\x18\x06 \x01(\tR\aversion\"\x9f\x03\n" +
 	"\fRobot_Status\x12\x19\n" +
 	"\brobot_id\x18\x01 \x02(\rR\arobotId\x123\n" +
 	"\x16is_detect_photo_sensor\x18\x02 \x02(\bR\x13isDetectPhotoSensor\x129\n" +

@@ -79,6 +79,10 @@ func Run() {
 		}
 	}
 
+	// バージョンを記録し、PiToMw で RAVEN へ通知する（Robot Status ペイン表示用）。
+	state.Version = upgrade.GetVersion()
+	log.Printf("RACOON-Pi2 version: %s", state.Version)
+
 	go upgrade.ConfirmAndSelfUpdate()
 
 	initBoard()

@@ -90,6 +90,11 @@ func createStatus(robotID uint32, detectPhotoSensor, detectDribbler, isNewDribbl
 		mac := state.MACAddress
 		piToMw.MacAddress = &mac
 	}
+	// バージョンが取得できていれば付与する（RAVEN の Robot Status ペイン表示用）。
+	if state.Version != "" {
+		version := state.Version
+		piToMw.Version = &version
+	}
 	return piToMw
 }
 

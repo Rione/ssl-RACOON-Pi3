@@ -29,6 +29,13 @@ const githubRepo = "Rione/ssl-RACOON-Pi2"
 // they can overwrite the running executable (e.g. empty wget downloads).
 const minReleaseBinarySize = 1 << 20 // 1 MiB
 
+// GetVersion returns the current build version string (ldflags-injected on
+// release builds, otherwise resolved from build info). Exported so other
+// packages (e.g. the PiToMw status sender) can report it to RAVEN.
+func GetVersion() string {
+	return getVersion()
+}
+
 func getVersion() string {
 	if Version != "" {
 		return Version
