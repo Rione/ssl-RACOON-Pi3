@@ -24,14 +24,21 @@ func SetPlayBallDetectedSound(fn func()) {
 }
 
 func RunClient(done <-chan struct{}, myID uint32, ip string) {
+	// 全インターフェース(0.0.0.0)で待ち受ける。特定IPに固定バインドすると、
+	// 実行中にロボットのIPが変わった場合(DHCP更新/Wi-Fi再接続/リンク断→再取得)に
+	// 旧IPへ張り付いたままとなり、OFFER/OK_PC/DATA/KEEP_ALIVE を受信できなくなる。
+	// (送信側 mw.RunServer はアンバインドで現在のIPから送るため、ロボットはDISCOVERを
+	//  出し続けRAVENは新IPへOFFERを返すが、この受信ソケットが旧IPだと永久に届かず、
+	//  ロボット再起動でしか復旧しなくなる。) IP変化に追従するため 0.0.0.0 で待ち受ける。
 	serverAddr := &net.UDPAddr{
-		IP:   net.ParseIP(ip),
+		IP:   net.IPv4zero,
 		Port: state.UDPRecvPort,
 	}
 
 	serverConn, err := net.ListenUDP("udp", serverAddr)
 	util.CheckError(err)
 	defer serverConn.Close()
+	log.Printf("[AI RX] Listening on 0.0.0.0:%d (startup local IP was %s)", state.UDPRecvPort, ip)
 
 	buf := make([]byte, 1024)
 	log.Printf("[AI RX] Started listening for PC on port %d...", state.UDPRecvPort)
