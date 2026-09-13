@@ -2,10 +2,13 @@ package locadapter
 
 import (
 	"math"
+	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
 	"github.com/Rione/ssl-RACOON-Pi2/internal/loclog"
+	"github.com/Rione/ssl-RACOON-Pi2/internal/timesync"
 	"github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen"
 	"google.golang.org/protobuf/proto"
 )
@@ -226,5 +229,144 @@ func TestVisionLossRate(t *testing.T) {
 	}
 	if got := (VisionStats{}).LossRate(); got != 0 {
 		t.Errorf("LossRate of an empty stat = %v, want 0", got)
+	}
+}
+
+// 受信器 + 凸包クロック推定の結合。合成の vision ストリームを流して、
+// 露光時刻がロボットの時間軸へ正しく写ることを確かめる。
+func TestVisionMapsCaptureTimeThroughConvexHull(t *testing.T) {
+	const (
+		skewPpm  = 50.0
+		offset   = 3 * time.Millisecond
+		minDelay = 2 * time.Millisecond
+		rate     = time.Second / 60
+		// t_capture は vision PC の起動からの秒。大きな値でも精度が落ちないこと。
+		captureBase = 36 * time.Hour
+	)
+
+	v := NewVisionReceiver(loclog.NewClock(), timesync.NewConvexHullProvider(timesync.Config{}),
+		nil, VisionConfig{RobotID: 3, Team: TeamBlue})
+
+	rng := rand.New(rand.NewSource(17))
+	trueLocal := func(capture time.Duration) localization.Stamp {
+		return localization.Stamp((1+skewPpm*1e-6)*float64(capture) + float64(offset))
+	}
+
+	var mappedOK int
+	var maxErr time.Duration
+	var mappedSq, arrivalSq float64
+	for i := 0; i < 60*40; i++ {
+		capture := captureBase + time.Duration(i)*rate
+		delay := minDelay + time.Duration(rng.ExpFloat64()*float64(1500*time.Microsecond))
+		if rng.Float64() < 0.05 {
+			delay += time.Duration(rng.Float64() * float64(40*time.Millisecond))
+		}
+		arrival := trueLocal(capture) + localization.Stamp(delay)
+
+		data := packet(0, uint32(i), capture.Seconds(), (capture + 8*time.Millisecond).Seconds(),
+			[]*pb_gen.SSL_DetectionRobot{robot(3, 1500, -2250, 1.25, 0.95)}, nil)
+		v.handlePacket(data, arrival)
+
+		obs, ok := v.Latest()
+		if !ok {
+			t.Fatalf("packet %d produced no observation", i)
+		}
+		if !obs.Mapped {
+			continue // 推定が立つまでは到着時刻へフォールバック
+		}
+		mappedOK++
+		// 分離できない最小片方向遅延ぶんは系統的に残る。それを引いて評価する。
+		want := trueLocal(capture) + localization.Stamp(minDelay)
+		e := time.Duration(obs.Stamp - want)
+		if e < 0 {
+			e = -e
+		}
+		if e > maxErr {
+			maxErr = e
+		}
+		mappedSq += float64(e) * float64(e)
+		// 写像せず到着時刻をそのまま使った場合。
+		a := float64(obs.Arrival - want)
+		arrivalSq += a * a
+	}
+
+	if mappedOK == 0 {
+		t.Fatal("the clock estimate never became valid over 40 seconds of packets")
+	}
+	if maxErr > 2*time.Millisecond {
+		t.Errorf("worst mapping error = %v, want <= 2ms", maxErr)
+	}
+	t.Logf("mapped %d/%d packets, worst error %v", mappedOK, 60*40, maxErr)
+
+	// 到着時刻をそのまま使った場合との比較。
+	//
+	// 写像が取り除けるのは「最小片方向遅延を超える変動分」だけである
+	// (定数分は原理的に分離できない)。個々のパケットでは、たまたま遅延が
+	// 小さければ差はほぼ無い。効いているかどうかは分布の広がりで見る。
+	mappedRMS := time.Duration(math.Sqrt(mappedSq / float64(mappedOK)))
+	arrivalRMS := time.Duration(math.Sqrt(arrivalSq / float64(mappedOK)))
+	t.Logf("rms error: mapped %v, raw arrival %v", mappedRMS, arrivalRMS)
+	if mappedRMS*10 > arrivalRMS {
+		t.Errorf("mapping rms %v is not much better than using the arrival stamp (%v); "+
+			"the variable part of the one-way delay should have been removed", mappedRMS, arrivalRMS)
+	}
+}
+
+// 推定が立つ前は Mapped = false で、到着時刻がそのまま入ること。
+func TestVisionFallsBackBeforeClockEstimateIsReady(t *testing.T) {
+	v := NewVisionReceiver(loclog.NewClock(), timesync.NewConvexHullProvider(timesync.Config{}),
+		nil, VisionConfig{RobotID: 3, Team: TeamBlue})
+
+	arrival := localization.Stamp(5 * time.Second)
+	data := packet(0, 1, (36 * time.Hour).Seconds(), (36*time.Hour + 8*time.Millisecond).Seconds(),
+		[]*pb_gen.SSL_DetectionRobot{robot(3, 0, 0, 0, 0.9)}, nil)
+	v.handlePacket(data, arrival)
+
+	obs, ok := v.Latest()
+	if !ok {
+		t.Fatal("no observation")
+	}
+	if obs.Mapped {
+		t.Error("a single packet must not produce a valid clock mapping")
+	}
+	if obs.Stamp != arrival {
+		t.Errorf("stamp = %v, want the arrival stamp %v as fallback", obs.Stamp, arrival)
+	}
+}
+
+// カメラごとに独立した推定器が使われていること。
+// 処理遅延の違うカメラを混ぜると、両方の写像がずれる。
+func TestVisionKeepsPerCameraClockState(t *testing.T) {
+	v := NewVisionReceiver(loclog.NewClock(), timesync.NewConvexHullProvider(timesync.Config{}),
+		nil, VisionConfig{RobotID: 3, Team: TeamBlue})
+
+	const rate = time.Second / 60
+	rng := rand.New(rand.NewSource(23))
+	delays := map[uint32]time.Duration{0: 2 * time.Millisecond, 1: 27 * time.Millisecond}
+
+	for i := 0; i < 60*40; i++ {
+		capture := 36*time.Hour + time.Duration(i)*rate
+		for id, minDelay := range delays {
+			delay := minDelay + time.Duration(rng.ExpFloat64()*float64(time.Millisecond))
+			arrival := localization.Stamp(float64(capture)) + localization.Stamp(delay)
+			v.handlePacket(packet(id, uint32(i), capture.Seconds(), capture.Seconds(), nil, nil), arrival)
+		}
+	}
+
+	multi, ok := v.Sync().(*timesync.MultiSync)
+	if !ok {
+		t.Fatal("the receiver is not holding a MultiSync")
+	}
+	if got := len(multi.Cameras()); got != 2 {
+		t.Fatalf("tracked %d cameras, want 2", got)
+	}
+	st0, _ := multi.StatsFor(0)
+	st1, _ := multi.StatsFor(1)
+	if !st0.Valid || !st1.Valid {
+		t.Fatalf("estimates not ready: %+v %+v", st0, st1)
+	}
+	gap := time.Duration(st1.OffsetNs - st0.OffsetNs)
+	if d := gap - 25*time.Millisecond; d < -2*time.Millisecond || d > 2*time.Millisecond {
+		t.Errorf("per-camera delay gap = %v, want 25ms; the cameras are sharing one estimator", gap)
 	}
 }

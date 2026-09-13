@@ -10,6 +10,7 @@ import (
 	"github.com/Rione/ssl-RACOON-Pi2/internal/locadapter"
 	"github.com/Rione/ssl-RACOON-Pi2/internal/loclog"
 	"github.com/Rione/ssl-RACOON-Pi2/internal/state"
+	"github.com/Rione/ssl-RACOON-Pi2/internal/timesync"
 )
 
 // startLocalization は自己位置推定の計測基盤 (計画 P1) を起動する。
@@ -82,7 +83,12 @@ func startVision(done <-chan struct{}, clock *loclog.Clock, writer *loclog.Write
 		return
 	}
 
-	receiver := locadapter.NewVisionReceiver(clock, nil, writer, locadapter.VisionConfig{
+	// 凸包法によるクロック推定を camera_id ごとに持つ (計画 §5.3)。
+	// 推定が立つまでは到着時刻へフォールバックし、vision_meta の mapped で
+	// どちらを使ったか分かるようにしてある。
+	sync := timesync.NewConvexHullProvider(timesync.Config{})
+
+	receiver := locadapter.NewVisionReceiver(clock, sync, writer, locadapter.VisionConfig{
 		Address:   state.LocVisionAddr,
 		Interface: state.LocVisionIface,
 		RobotID:   myID,

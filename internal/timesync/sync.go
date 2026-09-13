@@ -34,6 +34,10 @@ type Quality struct {
 	OffsetNs int64
 	// Samples は推定に使った観測数。
 	Samples int
+	// Frozen はスキュー推定の暴走を検出し、直前の値を保持している状態か。
+	//
+	// 写像自体は使えるが、既に古い。上位は警報を出す判断に使う (計画 §5.5)。
+	Frozen bool
 }
 
 // Sync は remote (vision PC) の時刻を Rock5A の時間軸へ写す。

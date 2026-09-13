@@ -99,7 +99,7 @@ func (s VisionStats) LossRate() float64 {
 type VisionReceiver struct {
 	cfg   VisionConfig
 	clock *loclog.Clock
-	sync  timesync.Sync
+	sync  timesync.Provider
 	rec   *loclog.Writer
 
 	// out は推定器へ渡すチャンネル。バッファ長 1 でノンブロッキング送信する。
@@ -122,8 +122,13 @@ type VisionReceiver struct {
 	badTimestamps atomic.Int64
 }
 
-// NewVisionReceiver は受信器を作る。sync が nil なら到着時刻をそのまま使う。
-func NewVisionReceiver(clock *loclog.Clock, sync timesync.Sync, rec *loclog.Writer, cfg VisionConfig) *VisionReceiver {
+// NewVisionReceiver は受信器を作る。
+//
+// sync は camera_id ごとに独立した推定器を貸し出す Provider である。
+// カメラごとに露光から送信までの処理遅延が違うので、1 つの推定器に混ぜると
+// 凸包の下端が一番速いカメラに引きずられる (計画 §5.3)。
+// nil なら到着時刻をそのまま使う。
+func NewVisionReceiver(clock *loclog.Clock, sync timesync.Provider, rec *loclog.Writer, cfg VisionConfig) *VisionReceiver {
 	if cfg.Address == "" {
 		cfg.Address = DefaultVisionAddress
 	}
@@ -131,7 +136,7 @@ func NewVisionReceiver(clock *loclog.Clock, sync timesync.Sync, rec *loclog.Writ
 		cfg.ReadBufferBytes = 1 << 20
 	}
 	if sync == nil {
-		sync = timesync.Arrival{}
+		sync = timesync.ArrivalProvider{}
 	}
 	return &VisionReceiver{
 		cfg:      cfg,
@@ -279,9 +284,11 @@ func (v *VisionReceiver) handlePacket(data []byte, recv localization.Stamp) {
 	var mapped localization.Stamp
 	var q timesync.Quality
 	if valid {
+		// camera_id ごとの推定器へ通す。
+		clock := v.sync.For(det.GetCameraId())
 		remote := timesync.SecondsToStamp(capture)
-		v.sync.Observe(remote, recv)
-		mapped, q = v.sync.ToLocal(remote, recv)
+		clock.Observe(remote, recv)
+		mapped, q = clock.ToLocal(remote, recv)
 	} else {
 		mapped = recv
 	}
@@ -384,16 +391,47 @@ func (v *VisionReceiver) trackFrameNumber(cameraID, frameNumber uint32) (gap, lo
 	return gap, v.lostFrames.Load(), v.packets.Load()
 }
 
+// Sync はクロック推定器の Provider を返す。監視用。
+func (v *VisionReceiver) Sync() timesync.Provider { return v.sync }
+
 // LogStats は受信の健全性を /recorder/status とは別に記録する。
 func (v *VisionReceiver) LogStats() {
 	if v.rec == nil {
 		return
 	}
+	stats := v.Stats()
 	v.rec.LogJSON(loclog.ChRecorderStatus, v.clock.Now(), struct {
 		Source string `json:"source"`
 		VisionStats
 		LossRate float64 `json:"lossRate"`
-	}{Source: "vision", VisionStats: v.Stats(), LossRate: v.Stats().LossRate()})
+	}{Source: "vision", VisionStats: stats, LossRate: stats.LossRate()})
+
+	// クロック推定の状態をカメラごとに残す。時刻同期は静かに壊れるので、
+	// 壊れたことを検出できる仕組みを最初から入れる (計画 §5.5)。
+	multi, ok := v.sync.(*timesync.MultiSync)
+	if !ok {
+		return
+	}
+	for _, id := range multi.Cameras() {
+		st, ok := multi.StatsFor(id)
+		if !ok {
+			continue
+		}
+		v.rec.LogJSON(loclog.ChVisionMeta, v.clock.Now(), struct {
+			Source   string  `json:"source"`
+			CameraID uint32  `json:"camera_id"`
+			SkewPpm  float64 `json:"skew_ppm"`
+			OffsetNs int64   `json:"offset_ns"`
+			SpanNs   int64   `json:"span_ns"`
+			Samples  int     `json:"samples_count"`
+			Fits     int64   `json:"fits_count"`
+			Resets   int64   `json:"resets_count"`
+			Freezes  int64   `json:"freezes_count"`
+			Valid    bool    `json:"valid"`
+			Frozen   bool    `json:"frozen"`
+		}{"timesync", id, st.SkewPpm, st.OffsetNs, st.SpanNs,
+			st.Samples, st.Fits, st.Resets, st.Freezes, st.Valid, st.Frozen})
+	}
 }
 
 // RunVisionStatsLogger は一定間隔で受信統計を記録する。
