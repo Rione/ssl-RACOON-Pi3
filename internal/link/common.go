@@ -73,6 +73,11 @@ func PrepareSendData() []byte {
 		sendbytes[frame.IdxVelXHigh] = byte(uint16(1000) >> 8)
 	}
 
+	// 同定の加振はここで差し込む。handleReceiveTimeout より後でなければ
+	// 毎周期 0 に戻され、handleEmgStopChange より前でなければ
+	// 非常停止の状態と食い違う。
+	applyVelocityOverride(sendbytes)
+
 	handleEmgStopChange(sendbytes)
 
 	return sendbytes

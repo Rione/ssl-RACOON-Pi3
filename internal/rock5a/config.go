@@ -5,14 +5,14 @@ package rock5a
 const DefaultHostname = "DietPi\n"
 
 const (
-	SPIDevPath     = "/dev/spidev4.0"
-	SPISpeedHz     = 1_000_000
-	SPIFrameSize   = 20
-	SPIPayloadSize = 18
-	SPIRecvSize    = 11
-	SPIFrameHeader = 0xFF
-	SPIFrameFooter = 0xAA
-	SPIPeriodMs    = 8
+	SPIDevPath      = "/dev/spidev4.0"
+	SPISpeedHz      = 1_000_000
+	SPIFrameSize    = 20
+	SPIPayloadSize  = 18
+	SPIRecvSize     = 11
+	SPIFrameHeader  = 0xFF
+	SPIFrameFooter  = 0xAA
+	SPIPeriodMs     = 8
 	WheelDiameterMm = 60.0
 )
 

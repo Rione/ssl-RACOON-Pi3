@@ -108,6 +108,10 @@ func Run() {
 	go api.Run(done, myID)
 	go receive.ReceiveData(done, myID, ipCamera)
 
+	stopLocalization := startLocalization(done, myID)
+	defer stopLocalization()
+	state.SetLocalizationShutdown(stopLocalization)
+
 	if state.DebugWheelGraph {
 		wheelgraph.SetEnabled(true)
 		go wheelgraph.RunServer(done)
@@ -123,6 +127,14 @@ func parseFlags() {
 	flag.BoolVar(&state.DebugWheelGraph, "dw", false, "Wheel(raw)のリアルタイムグラフを有効化 (http://<robot>:9192/wheel-graph)")
 	flag.BoolVar(&state.DryRun, "dryrun", false, "serial/SPIへ速度・キック等の動作指令を送らない")
 	flag.BoolVar(&state.VelX1000, "velx1000", false, "テスト用: VelX=1000 を送信フレームに設定")
+
+	// 自己位置推定の計測基盤 (docs/self-localization-plan.md の P1)。
+	flag.StringVar(&state.LocLogDir, "loclog", "", "自己位置推定の計測ログ(MCAP)の出力先ディレクトリ。空なら記録しない")
+	flag.StringVar(&state.LocProfile, "locprofile", "", "STMフレームのプロファイル名かJSONパス (既定: rock5a-v1)")
+	flag.StringVar(&state.LocTeam, "team", "blue", "自機のチーム色 (blue|yellow)。SSL-Visionから自機を特定するのに要る")
+	flag.StringVar(&state.LocVisionAddr, "visionaddr", "", "SSL-Visionのマルチキャスト (既定: 224.5.23.2:10694)")
+	flag.StringVar(&state.LocVisionIface, "visioniface", "", "SSL-Vision受信に使うNIC名。空ならシステム既定")
+	flag.BoolVar(&state.LocIdent, "locident", false, "機体パラメータ同定の加振を実行する。ロボットが自走するので注意")
 	flag.Parse()
 
 	if state.DebugSerial {
@@ -142,6 +154,12 @@ func parseFlags() {
 	}
 	if state.VelX1000 {
 		log.Println("Test mode: VelX=1000 (-velx1000)")
+	}
+	if state.LocLogDir != "" {
+		log.Printf("Localization: recording to %s (-loclog)", state.LocLogDir)
+	}
+	if state.LocIdent {
+		log.Println("Localization: identification excitation enabled (-locident); the robot will drive itself")
 	}
 }
 
@@ -207,6 +225,7 @@ func setupSignalHandler() {
 	go func() {
 		for range c {
 			api.StopPythonProcess()
+			state.RunLocalizationShutdown()
 			cleanupBoard()
 			log.Println("Bye")
 			os.Exit(0)

@@ -1,0 +1,22 @@
+{
+  "profile": "rock5a-v1",
+  "frameSize": 20,
+  "header": "0xFF",
+  "footer": "0xAA",
+
+  "fields": [
+    { "name": "battery", "offset": 1, "type": "u8", "scale": 0.1, "unit": "V" },
+    { "name": "sensorInfo", "offset": 2, "type": "u8", "scale": 1, "unit": "bitfield" },
+    { "name": "capPower", "offset": 3, "type": "u8", "scale": 1, "unit": "count" },
+
+    { "name": "wheelFL", "offset": 4, "type": "i16le", "scale": 0.01, "unit": "rad/s", "timeOffsetMs": -4.0 },
+    { "name": "wheelBL", "offset": 6, "type": "i16le", "scale": 0.01, "unit": "rad/s", "timeOffsetMs": -4.0 },
+    { "name": "wheelBR", "offset": 8, "type": "i16le", "scale": 0.01, "unit": "rad/s", "timeOffsetMs": -4.0 },
+    { "name": "wheelFR", "offset": 10, "type": "i16le", "scale": 0.01, "unit": "rad/s", "timeOffsetMs": -4.0 }
+  ],
+
+  "reserved": [
+    { "offset": 12, "length": 7, "mustBeZero": true },
+    { "offset": 19, "length": 1, "mustBeZero": false }
+  ]
+}

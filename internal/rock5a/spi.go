@@ -66,9 +66,18 @@ func processSPICommunication(conn spi.Conn) {
 	tx := wrapSPIFrame(payload)
 	rx := make([]byte, SPIFrameSize)
 
-	if err := conn.Tx(tx, rx); err != nil {
-		util.CheckError(err)
+	// 転送時刻は Tx の直前・直後の中点とする。time.Ticker の公称 8 ms は、
+	// 受信が遅れると間隔を詰めたりティックを落としたりするので信用しない
+	// (docs/self-localization-plan.md §5.2)。
+	before := time.Now()
+	txErr := conn.Tx(tx, rx)
+	after := time.Now()
+	if txErr != nil {
+		util.CheckError(txErr)
 	}
+
+	// 計測基盤へ渡す。登録が無ければ何もしない。
+	link.NotifySPI(tx, rx, before, after)
 
 	pushSPIRxWindow(spiRxWindow[:], rx)
 	frameOffset, frameErr := resolveSPIRxFrame(spiRxWindow[:])
