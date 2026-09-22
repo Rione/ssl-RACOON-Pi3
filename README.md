@@ -1,7 +1,5 @@
 # RACOON-Pi v3
 
-> [ssl-RACOON-Pi2](https://github.com/Rione/ssl-RACOON-Pi2) の master (f183f35) から派生したリポジトリです。ロボット上のローカル制御 (自己位置推定・追従制御) への移行をここで進めます。
-
 ssl-RACOON-Controller などから送信された指令値をもとに、高速に情報を受信・制御を行うロボット側ソフトウェアです。
 
 **Pi 4B（UART）** と **Rock5A（SPI）** の2ボードに対応しています。ビルド時に `-tags` でボードを明示指定してください。
@@ -157,20 +155,31 @@ GitHub Release からボード別バイナリを取得します。Public リポ�
 
 | ビルド | Release アセット名（例） | フィルタ |
 |--------|-------------------------|----------|
-| Pi 4B | `racoon-pi3-pi4_v1.0.0_linux_arm64.tar.gz` | `^racoon-pi3-pi4_` |
-| Rock5A | `racoon-pi3-rock5a_v1.0.0_linux_arm64.tar.gz` | `^racoon-pi3-rock5a_` |
+| Pi 4B | `racoon-pi3-pi4_v7.0.0_linux_arm64.tar.gz` | `^racoon-pi3-pi4_` |
+| Rock5A | `racoon-pi3-rock5a_v7.0.0_linux_arm64.tar.gz` | `^racoon-pi3-rock5a_` |
 
 Release の tar には Go バイナリと `camera/` の Python ソース（**YOLO モデル `.pt` は含まない**）が同梱されます。キャリブレーション用の重みは Release ごとに 1 つだけ別アセット（`racoon-pi3-yolo_<version>_last.pt`、約 23 MiB）として公開します。初回セットアップ時にロボットへ配置してください。
 
 ```bash
 # バイナリと同じディレクトリで（git clone 時は submodule でも可）
-./scripts/install-yolo-model.sh v1.0.0
+./scripts/install-yolo-model.sh v7.0.0
 # または手動:
 # curl -fL -o camera/yolo/last.pt \
-#   https://github.com/Rione/ssl-RACOON-Pi3/releases/download/v1.0.0/racoon-pi3-yolo_1.0.0_last.pt
+#   https://github.com/Rione/ssl-RACOON-Pi3/releases/download/v7.0.0/racoon-pi3-yolo_7.0.0_last.pt
 ```
 
 自動アップデートはバイナリと Python のみ同期し、既にある `camera/yolo/*.pt` は上書きしません（毎回 ~23 MiB×2 の転送を避けるため）。
+
+### 版番号とリリース
+
+- **タグを push するとリリースされます**（`.github/workflows/main.yml` → goreleaser）。版番号はタグ名そのものです。
+- **Pi3 の版番号は `v7.0.0` から始めます。** Pi2 の最終系列（v6.x）の続きとして数えるため、
+  Pi2 と Pi3 の機体が混在する移行期でも、RAVEN の Robot Status で「v7 以上なら Pi3」と一目で分かります。
+- 自己更新は **このリポジトリ（Rione/ssl-RACOON-Pi3）のリリース同士でしか比べません**。
+  Pi2 で動いている機体は Pi2 のリリースしか見ないので、**Pi2 から Pi3 への最初の載せ替えは手作業**になります。
+  一度 Pi3 を載せれば、以後は Pi3 のリリースで自動更新されます。
+- Pi2 のリリースタグ（v0.1.0〜v6.x）はこのリポジトリへ持ち込んでいません。**Pi2 のタグを push しないでください**
+  （goreleaser は直近のタグから版を決めるため、Pi3 が Pi2 の版番号でリリースされてしまいます）。
 
 ## Robot IDの決定方法
 
@@ -241,3 +250,10 @@ sudo /root/spi_test -interval 8ms -mismatch-only   # NG のみ表示
 Informations の bit0 (`EmgStop`) は **1=非常停止中** です。MW から指令を受けている本番状態では 0 です。
 
 初期ホスト名 `DietPi` の場合、初回起動時に `racoon-XXXXX` 形式のホスト名へ自動変更されます。
+
+## 経緯
+
+このリポジトリは [ssl-RACOON-Pi2](https://github.com/Rione/ssl-RACOON-Pi2) の master（`f183f35`）から派生しました。
+ロボット上のローカル制御（自己位置推定・追従制御）への移行をここで進めます。
+Pi2 のコミット履歴はそのまま引き継いでいるので、それ以前の経緯は `git log` / `git blame` で辿れます。
+Pi2 の `feat/#1-self-localization`（`8860429`）と `feat/#2-set-velocity`（`ae433a8`）も取り込み済みです。
