@@ -178,12 +178,12 @@ type ImageResponse struct {
 var ImageResponseData ImageResponse
 
 var (
-	DebugSerial      bool = false
-	DebugReceive     bool = false
-	DebugCamera      bool = false
-	DebugWheelGraph  bool = false
-	DryRun       bool = false
-	VelX1000     bool = false
+	DebugSerial     bool = false
+	DebugReceive    bool = false
+	DebugCamera     bool = false
+	DebugWheelGraph bool = false
+	DryRun          bool = false
+	VelX1000        bool = false
 
 	PowerShutdownMode bool = false
 
@@ -215,4 +215,44 @@ var DefaultAdjustment = Adjustment{
 	MaxThreshold:         "15, 255, 255",
 	BallDetectRadius:     150,
 	CircularityThreshold: 0.2,
+}
+
+// 自己位置推定の計測基盤 (docs/self-localization-plan.md の P1) の設定。
+var (
+	// LocLogDir は計測ログ(MCAP)の出力先。空なら記録しない。
+	LocLogDir string
+	// LocProfile は STM フレームのプロファイル名か JSON パス。
+	LocProfile string
+	// LocTeam は自機のチーム色 ("blue" / "yellow")。
+	//
+	// SSL-Vision は robots_blue / robots_yellow を分けて送り、robot_id は
+	// チーム内で採番されるので、色が分からないと自機を特定できない。
+	// 現状ロボットは自分の色を知る経路を持たないので、起動フラグで与える。
+	LocTeam string
+	// LocVisionAddr は SSL-Vision のマルチキャスト。空なら既定値。
+	LocVisionAddr string
+	// LocVisionIface は受信に使う NIC 名。空ならシステム既定。
+	LocVisionIface string
+	// LocIdent は機体パラメータ同定の加振を実行するか。ロボットが自走する。
+	LocIdent bool
+)
+
+// localizationShutdown は計測ログを閉じる後始末。
+// SIGINT で落とすときに、書き残しでログの最後が消えるのを防ぐ。
+var localizationShutdown atomic.Pointer[func()]
+
+// SetLocalizationShutdown は後始末を登録する。
+func SetLocalizationShutdown(fn func()) {
+	if fn == nil {
+		localizationShutdown.Store(nil)
+		return
+	}
+	localizationShutdown.Store(&fn)
+}
+
+// RunLocalizationShutdown は登録された後始末を 1 度だけ実行する。
+func RunLocalizationShutdown() {
+	if fn := localizationShutdown.Swap(nil); fn != nil {
+		(*fn)()
+	}
 }

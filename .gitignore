@@ -10,3 +10,5 @@ ssl-RACOON-Pi2
 .DS_Store
 __pycache__/
 *.pyc
+/loc_ident
+*.mcap
