@@ -1,0 +1,27 @@
+# /etc/systemd/system/ssl-racoon.service (Rock5A)
+#
+# 機体の起動時に RACOON-Pi3 を立ち上げるサービス。
+# 2026-09-22 に Rock5A の機体 (robot 15) から取得した Pi2 用の設定を元に、
+# 実行ファイルだけ Pi3 へ向けたもの。それ以外の値は機体の設定と同じ。
+#
+# - 自己更新は起動時に 1 回だけ行い、上書き後にプロセスを終了する。
+#   Restart=always で立ち上げ直すことで新しい版に切り替わる。
+# - threshold.json (ボール色のしきい値) と camera/ は作業ディレクトリ /root に置く。
+# - Pi2 のバイナリ (/root/racoon-pi2-rock5a) は残しておけば、ExecStart を戻すだけで Pi2 に戻せる。
+[Unit]
+Description=RACOON-Pi3 (Rock5A)
+# ネットワークが完全にオンラインになってから起動する (起動時の自己更新にネットワークが要る)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root
+ExecStart=/root/racoon-pi3-rock5a
+Restart=always
+# 再起動するまでの待機時間
+RestartSec=1s
+
+[Install]
+WantedBy=multi-user.target

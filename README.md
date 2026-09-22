@@ -64,7 +64,15 @@ Rock5A 上で `go build` した場合は `GOOS`/`GOARCH` は不要です。Mac �
 
 ## 実機で試す（手で載せる）
 
-今ロボットで動いているのは Pi2（`ssl-racoon.service`）で、Pi2 は Pi2 のリリースしか取りに行きません。
+今ロボットで動いているのは Pi2 で、Pi2 は Pi2 のリリースしか取りに行きません。
+機体上の配置は Rock5A の場合次のとおりです（2026-09-22 に robot 15 で確認）。
+
+| もの | 場所 |
+|---|---|
+| 起動設定 | `/etc/systemd/system/ssl-racoon.service`（写しは [`scripts/ssl-racoon.service`](scripts/ssl-racoon.service)） |
+| Pi2 のバイナリ | `/root/racoon-pi2-rock5a` |
+| 作業ディレクトリ | `/root`（ボール色のしきい値は `/root/threshold.json`、カメラの Python は `/root/camera/`） |
+
 そのため **Pi3 は最初の 1 回を手で載せます**。どのブランチのコードでも、ビルドして載せれば確かめられます
 （master やリリースを経由する必要はありません）。開発ビルドは版番号が開発版扱いになり、**自己更新しません**。
 
@@ -80,8 +88,7 @@ scp -r camera root@<robot>:/root/racoon-pi3/   # 搭載カメラを使う場合
 
 ```bash
 # ロボット上で
-systemctl cat ssl-racoon.service                     # ExecStart / WorkingDirectory で Pi2 の置き場所を確認
-cp <Pi2 の置き場所>/threshold.json /root/racoon-pi3/  # ボール色の HSV しきい値を引き継ぐ
+cp /root/threshold.json /root/racoon-pi3/            # ボール色の HSV しきい値を引き継ぐ
 sudo systemctl stop ssl-racoon.service                # Pi2 を止める
 cd /root/racoon-pi3 && sudo ./racoon-pi3 -dryrun      # まずは車輪に指令を送らずに起動
 ```
@@ -93,6 +100,33 @@ cd /root/racoon-pi3 && sudo ./racoon-pi3 -dryrun      # まずは車輪に指令
 - **Pi2 に戻す**: Ctrl+C で止めて `sudo systemctl start ssl-racoon.service`。Pi2 の置き場所には触れていないので元どおりです。
   ロボットを再起動した場合も Pi2 が起動します。
 - 自己位置推定の計測（`-loclog` など）は [`docs/localization-p1-runbook.md`](docs/localization-p1-runbook.md) を参照してください。
+
+### 本番の載せ替え（Rock5A）
+
+機体を Pi3 で常用にするときの手順です。**リリース版（タグを付けて作ったもの）を入れてください。**
+開発ビルドは自己更新しないので、入れたまま放置すると以後の更新を受け取れません。
+
+```bash
+# ロボット上で（例: v7.0.0）
+cd /root
+curl -fL -o /tmp/pi3.tar.gz \
+  https://github.com/Rione/ssl-RACOON-Pi3/releases/download/v7.0.0/racoon-pi3-rock5a_7.0.0_linux_arm64.tar.gz
+tar -xzf /tmp/pi3.tar.gz -C /root        # /root/racoon-pi3-rock5a と /root/camera/ ができる（.pt は上書きしない）
+
+# 起動設定を Pi3 用に差し替える（開発 PC から scripts/ssl-racoon.service を持ってくる）
+cp /etc/systemd/system/ssl-racoon.service /root/ssl-racoon.service.pi2.bak
+cp ssl-racoon.service /etc/systemd/system/ssl-racoon.service
+systemctl daemon-reload
+systemctl restart ssl-racoon.service
+journalctl -u ssl-racoon.service -f      # 起動ログを確認（Ctrl+C で抜ける）
+```
+
+- `threshold.json` と `camera/` は Pi2 と同じ `/root` を使うので、しきい値はそのまま引き継がれます。
+- 追加設定 `ssl-racoon.service.d/wait-6ghz.conf`（Wi-Fi の 6 GHz 切替を待ってから起動する）は
+  別ファイルなので、上の差し替えでは消えません。写しは [`scripts/ssl-racoon.service.d/`](scripts/ssl-racoon.service.d/) にあります。
+- **Pi2 に戻す**: `cp /root/ssl-racoon.service.pi2.bak /etc/systemd/system/ssl-racoon.service && systemctl daemon-reload && systemctl restart ssl-racoon.service`。
+  Pi2 のバイナリ（`/root/racoon-pi2-rock5a`）は消していないので、そのまま起動します。
+- Pi 4B の機体の起動設定はまだ取得していません（バイナリ名は `racoon-pi2-pi4` のはず）。
 
 ## カメラ
 
@@ -191,16 +225,16 @@ GitHub Release からボード別バイナリを取得します。
 - 新しい版があれば**実行中のバイナリ自身を上書き**し、リリースに同梱の `camera/` もバイナリの隣へ展開して、
   **プロセスを終了**します。再起動は systemd に任せています。
 - 開発ビルド（タグ無しでビルドしたもの）は確認そのものをしません。
-- **ロボットの起動時にこのプログラムを立ち上げる設定（`ssl-racoon.service`）は、このリポジトリには無く、機体側にあります。**
-  終了後に立ち上がり直すか（`Restart=`）、Wi-Fi がつながるのを待ってから起動するか（`After=network-online.target` など）は
-  そちらの設定次第です。確認は `systemctl cat ssl-racoon.service`。起動時にネットワークが無いと、その回の確認は失敗し、次の起動まで再試行しません。
+- ロボットの起動時にこのプログラムを立ち上げるのは systemd の `ssl-racoon.service` です（Rock5A 用の写しは
+  [`scripts/ssl-racoon.service`](scripts/ssl-racoon.service)）。`Restart=always` で立ち上げ直し、
+  ネットワーク（と Wi-Fi の 6 GHz 切替）を待ってから起動します。起動時にネットワークが無いと、その回の確認は失敗し、次の起動まで再試行しません。
 
 Public リポジトリのため `.env` や `GITHUB_TOKEN` は必須ではありません。`.env` がある場合は自動で読み込みます（API レート制限を避けたい場合に `GITHUB_TOKEN` を設定できます）。
 
 | ビルド | Release アセット名（例） | フィルタ |
 |--------|-------------------------|----------|
-| Pi 4B | `racoon-pi3-pi4_v7.0.0_linux_arm64.tar.gz` | `^racoon-pi3-pi4_` |
-| Rock5A | `racoon-pi3-rock5a_v7.0.0_linux_arm64.tar.gz` | `^racoon-pi3-rock5a_` |
+| Pi 4B | `racoon-pi3-pi4_7.0.0_linux_arm64.tar.gz` | `^racoon-pi3-pi4_` |
+| Rock5A | `racoon-pi3-rock5a_7.0.0_linux_arm64.tar.gz` | `^racoon-pi3-rock5a_` |
 
 Release の tar には Go バイナリと `camera/` の Python ソース（**YOLO モデル `.pt` は含まない**）が同梱されます。キャリブレーション用の重みは Release ごとに 1 つだけ別アセット（`racoon-pi3-yolo_<version>_last.pt`、約 23 MiB）として公開します。初回セットアップ時にロボットへ配置してください。
 
