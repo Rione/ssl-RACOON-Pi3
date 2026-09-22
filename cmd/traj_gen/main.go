@@ -17,7 +17,7 @@ import (
 
 func main() {
 	c := trajpoc.DefaultGenConfig()
-	flag.StringVar(&c.Shape, "shape", c.Shape, "line | square | circle | fig8 | turn (その場で回る。size=角度[rad], speed=角速度[rad/s], accel=角加速度[rad/s^2])")
+	flag.StringVar(&c.Shape, "shape", c.Shape, "line | square | circle | fig8 | turn (その場で回る。size=角度[rad], speed=角速度[rad/s], accel=角加速度[rad/s^2]) | hold (止まったまま size 秒)")
 	flag.Float64Var(&c.Size, "size", c.Size, "形の大きさ [m] (line=片道, square=一辺, circle=直径, fig8=輪1つの直径)")
 	flag.Float64Var(&c.Speed, "speed", c.Speed, "巡航速度 [m/s]")
 	flag.Float64Var(&c.Accel, "accel", c.Accel, "加減速度・横加速度の上限 [m/s^2]")

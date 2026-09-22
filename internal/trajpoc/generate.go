@@ -10,7 +10,7 @@ import (
 
 // GenConfig は仮想軌道の作り方。座標は開始位置が原点・ロボットの前方が +x の相対。
 type GenConfig struct {
-	Shape   string  // line | square | circle | fig8 | turn
+	Shape   string  // line | square | circle | fig8 | turn | hold
 	Size    float64 // 形の大きさ [m] (line は往復の片道、square は一辺、circle は直径、fig8 は輪 1 つの直径、turn は回す角度 [rad])
 	Speed   float64 // 巡航速度 [m/s] (turn は角速度 [rad/s])
 	Accel   float64 // 加減速度と、曲がるときの横加速度の上限 [m/s^2] (turn は角加速度 [rad/s^2])
@@ -41,6 +41,10 @@ func Generate(c GenConfig) ([]Knot, error) {
 	if c.Shape == "turn" {
 		return generateTurn(c), nil
 	}
+	if c.Shape == "hold" {
+		// その場で止まったまま Size [s] 保持する。止まっているときの制御の輪の揺れを見る試験に使う。
+		return []Knot{{T: 0}, {T: c.Size}}, nil
+	}
 	var one []leg
 	switch c.Shape {
 	case "line":
@@ -59,7 +63,7 @@ func Generate(c GenConfig) ([]Knot, error) {
 		up, down := arcLeg(c.Size/2, 1), arcLeg(c.Size/2, -1)
 		one = []leg{{pts: append(up.pts, down.pts[1:]...), radius: c.Size / 2}}
 	default:
-		return nil, fmt.Errorf("unknown shape %q (line|square|circle|fig8|turn)", c.Shape)
+		return nil, fmt.Errorf("unknown shape %q (line|square|circle|fig8|turn|hold)", c.Shape)
 	}
 	if c.Heading == "tangent" && (c.Shape == "line" || c.Shape == "square") {
 		return nil, fmt.Errorf("heading=tangent needs a smooth path (circle|fig8): %s turns in place at its corners", c.Shape)
