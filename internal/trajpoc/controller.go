@@ -75,13 +75,16 @@ type NearGoalConfig struct {
 	HeadMaxRate float64 // 向きの角速度の上限 [rad/s]
 	HeadBand    float64 // これより向きが近ければ回さない [rad]
 	ExitFactor  float64 // 止めた後、不感帯のこの倍を超えたら動き直す (ヒステリシス)
-	Delay       float64 // 指令が効くまでの遅れ [s]。止まれる速度をこの分だけ控える (PoC の実測で約 90 ms)
+	Delay       float64 // 指令が効くまでの遅れ [s] (PoC の実測で約 90 ms)。スミス予測の窓
+	MinSpeed    float64 // 不感帯の外で出す並進の最低速度 [m/s]。これ未満だと静止摩擦で動かない (§5-14)
 }
 
-// DefaultNearGoal は RAVEN の near_goal_brake の値 (control.yaml) に合わせたもの。速度の上限だけ PoC の上限に合わせて低い。
+// DefaultNearGoal は RAVEN の near_goal_brake の値 (control.yaml) が元。速度の上限は PoC の上限に合わせて低い。
+// 不感帯は 4 → 1.5 mm: スミス予測の位置が不感帯の縁に入った時点で止めるので、縁の分だけ手前で止まる
+// (動き直すのは 4.5 mm を超えてから)。vision の揺れは 0.2〜0.4 mm なので 1.5 mm でも足りる。
 func DefaultNearGoal() NearGoalConfig {
-	return NearGoalConfig{Radius: 0.1, Decel: 2.5, MaxSpeed: 0.3, Deadband: 0.004,
-		HeadDecel: 15, HeadMaxRate: 2.0, HeadBand: 0.03, ExitFactor: 2.5, Delay: 0.09}
+	return NearGoalConfig{Radius: 0.1, Decel: 2.5, MaxSpeed: 0.3, Deadband: 0.0015,
+		HeadDecel: 15, HeadMaxRate: 2.0, HeadBand: 0.03, ExitFactor: 3, Delay: 0.09, MinSpeed: 0.03}
 }
 
 // DefaultConfig は最初の実機試験用の保守的な設定。
@@ -148,12 +151,11 @@ func command(c Config, ref *Reference, t float64, pose localization.Pose2, age f
 	return vel, omega, th
 }
 
-// nearGoal は軌道が終わった後の寄せ方。ゴールまで Radius 以内なら、遅れ Td を入れた止まれる速度
-// v = a·(√(Td² + 2(d−不感帯)/a) − Td) でゴールへ向かい、不感帯に入ったら止める。
-// (素の √ブレーキ則 √(2a(d−不感帯)) は「今すぐ減速し始められる」前提で、90 ms の遅れの間に
-// 不感帯を越えて行ったり来たりする。遅れの間は今の速度で進むとして、その分だけ控える。)
-// stopped は前回止めていたか (ヒステリシス用)。
-// 使わないとき (範囲外・無効) は ok=false。
+// nearGoal は軌道が終わった後の寄せ方。pose は vision の位置に「出したがまだ vision に現れていない指令」を
+// 足したスミス予測の位置 (今の指令が効き始める頃の位置)。予測の位置で判断するので、止める判断のときに
+// まだ効いていない指令を見落とさない (v1 は vision の位置で止め、遅れて効いた指令で 12 mm 流れた)。
+// ゴールまで Radius 以内なら √ブレーキ則の速度 (下限 MinSpeed) でゴールへ向かい、不感帯に入ったら止める。
+// stopped は前回止めていたか (ヒステリシス用)。使わないとき (範囲外・無効) は ok=false。
 func nearGoal(c NearGoalConfig, goal RefSample, pose localization.Pose2, stopped bool) (vel localization.Vec2, omega float64, nowStopped, ok bool) {
 	dx, dy := goal.Pos.X-pose.X, goal.Pos.Y-pose.Y
 	d := math.Hypot(dx, dy)
@@ -169,13 +171,44 @@ func nearGoal(c NearGoalConfig, goal RefSample, pose localization.Pose2, stopped
 		return localization.Vec2{}, 0, true, true
 	}
 	if d >= band {
-		v := math.Min(c.MaxSpeed, stoppableSpeed(d-c.Deadband, c.Decel, c.Delay))
+		v := math.Min(c.MaxSpeed, math.Max(c.MinSpeed, stoppableSpeed(d, c.Decel, 0)))
 		vel = localization.Vec2{X: dx / d * v, Y: dy / d * v}
 	}
 	if math.Abs(he) >= hband {
-		omega = math.Copysign(math.Min(c.HeadMaxRate, stoppableSpeed(math.Abs(he)-c.HeadBand, c.HeadDecel, c.Delay)), he)
+		omega = math.Copysign(math.Min(c.HeadMaxRate, stoppableSpeed(math.Abs(he)-c.HeadBand, c.HeadDecel, 0)), he)
 	}
 	return vel, omega, false, true
+}
+
+// predict はスミス予測: vision の撮影時刻から遅れ delay を引いた時刻より後に出した指令は、まだ vision に
+// 現れていない。その分を vision の位置に足す。hist は出した指令 (古い順、各指令は次の指令まで続く)。
+func predict(pose localization.Pose2, capture, now localization.Stamp, delay float64, hist []cmdRecord) localization.Pose2 {
+	from := capture - localization.Stamp(delay*1e9)
+	for i, h := range hist {
+		end := now
+		if i+1 < len(hist) {
+			end = hist[i+1].at
+		}
+		a := h.at
+		if a < from {
+			a = from
+		}
+		if end <= a {
+			continue
+		}
+		dt := (end - a).Seconds()
+		pose.X += h.vel.X * dt
+		pose.Y += h.vel.Y * dt
+		pose.Theta = localization.WrapAngle(pose.Theta + h.omega*dt)
+	}
+	return pose
+}
+
+// cmdRecord は出した指令 (world 系)。スミス予測に使う。
+type cmdRecord struct {
+	at    localization.Stamp
+	vel   localization.Vec2
+	omega float64
 }
 
 // stoppableSpeed は、遅れ td の間は今の速度で進み、その後に減速度 a で止まるとき、

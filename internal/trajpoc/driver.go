@@ -41,8 +41,9 @@ type Sample struct {
 	CmdWorld localization.Vec2
 	CmdOmega float64
 	CmdBody  localization.Vec2
-	Held     bool // vision が古くて 0 を出した周期
-	NearGoal bool // 止まり際の √ブレーキ則で指令した周期
+	Held     bool               // vision が古くて 0 を出した周期
+	NearGoal bool               // 止まり際の √ブレーキ則で指令した周期
+	Pred     localization.Pose2 // そのときのスミス予測の位置 (NearGoal のときだけ)
 }
 
 // Driver は link.VelocityOverride を満たし、SPI の周期 (125 Hz) ごとに速度を作る。
@@ -62,7 +63,8 @@ type Driver struct {
 
 	prevVel   localization.Vec2
 	prevOmega float64
-	ngStopped bool // 止まり際の不感帯で止めているか
+	ngStopped bool        // 止まり際の不感帯で止めているか
+	hist      []cmdRecord // 直近に出した指令 (スミス予測用)
 	prevTick  localization.Stamp
 	samples   []Sample
 }
@@ -189,23 +191,38 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 		// 古い位置で閉ループを回すと振動する。止まって新しい vision を待つ。
 		s.Held = true
 		d.prevVel, d.prevOmega = localization.Vec2{}, 0
+		d.remember(now, localization.Vec2{}, 0)
 		d.samples = append(d.samples, s)
 		return 0, 0, 0, true
 	}
 
 	vel, omega, bodyTheta := command(d.cfg, d.ref, t, pose, age, d.prevVel, d.prevOmega)
 	if t > d.ref.End() {
-		if v, w, st, ok := nearGoal(d.cfg.NearGoal, d.ref.At(t), pose, d.ngStopped); ok {
-			vel, omega, d.ngStopped, bodyTheta = v, w, st, pose.Theta
-			s.NearGoal = true
+		pred := predict(pose, capture, now, d.cfg.NearGoal.Delay, d.hist)
+		if v, w, st, ok := nearGoal(d.cfg.NearGoal, d.ref.At(t), pred, d.ngStopped); ok {
+			vel, omega, d.ngStopped, bodyTheta = v, w, st, pred.Theta
+			s.NearGoal, s.Pred = true, pred
 		}
 	}
 	vel, omega = limit(d.cfg, vel, omega, d.prevVel, d.prevOmega, dt)
 	d.prevVel, d.prevOmega = vel, omega
+	d.remember(now, vel, omega)
 	body := localization.RotateInv(bodyTheta, vel)
 	s.CmdWorld, s.CmdOmega, s.CmdBody = vel, omega, body
 	d.samples = append(d.samples, s)
 	return toInt16(body.X * 1000), toInt16(body.Y * 1000), toInt16(omega * 1000), true
+}
+
+// remember は出した指令を覚え、スミス予測に要らなくなった古いものを捨てる
+// (vision の古さの上限 VisionHoldAge + 遅れ より前は使わない)。
+func (d *Driver) remember(now localization.Stamp, vel localization.Vec2, omega float64) {
+	d.hist = append(d.hist, cmdRecord{at: now, vel: vel, omega: omega})
+	keep := now - localization.Stamp((d.cfg.VisionHoldAge+d.cfg.NearGoal.Delay+0.05)*1e9)
+	i := 0
+	for i+1 < len(d.hist) && d.hist[i+1].at <= keep {
+		i++
+	}
+	d.hist = d.hist[i:]
 }
 
 func toInt16(v float64) int16 {

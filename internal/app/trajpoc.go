@@ -60,7 +60,7 @@ func registerTrajPocFlags() {
 	flag.Float64Var(&trajPoc.fence, "trajfence", d.Fence, "軌道が収まるべき開始位置からの半径 [m]")
 	flag.IntVar(&trajPoc.visionID, "trajvisionid", -1, "SSL-Vision 上の自機 ID (カバーの模様)。-1 なら DIP スイッチの ID")
 	flag.StringVar(&trajPoc.csvDir, "trajcsv", ".", "記録 CSV の出力先ディレクトリ。空なら書かない")
-	flag.BoolVar(&trajPoc.nearGoal, "trajneargoal", false, "軌道が終わった後の寄せ方を √ブレーキ則 + 不感帯にする (RAVEN の near-goal brake と同じ考え)")
+	flag.BoolVar(&trajPoc.nearGoal, "trajneargoal", false, "軌道が終わった後の寄せ方を √ブレーキ則 + 不感帯にする。判断はスミス予測の位置 (vision + まだ効いていない指令)、最低速度 30 mm/s")
 }
 
 func trajPocConfig() (trajpoc.Config, error) {

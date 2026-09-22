@@ -101,7 +101,9 @@ func TestReferenceInterpolation(t *testing.T) {
 
 // simRobot は簡易な機体: 指令は Dead だけ遅れて届き、実速度は Tau の一次遅れで追う。
 // vision は VisionPeriod ごとに撮影し、Latency 後に届く。
+// stiction > 0 なら、止まっている機体はそれ未満の並進の指令では動かない (静止摩擦、traj-poc-log §5-14)。
 type simRobot struct {
+	stiction                    float64
 	now                         localization.Stamp
 	pose                        localization.Pose2
 	vel                         localization.Vec2 // world
@@ -149,6 +151,9 @@ func (r *simRobot) step(dt float64) {
 		if c.at <= r.now-sec(r.dead) {
 			target = c
 		}
+	}
+	if math.Hypot(target.body.X, target.body.Y) < r.stiction && math.Hypot(r.vel.X, r.vel.Y) < 0.002 {
+		target.body = localization.Vec2{}
 	}
 	tv := localization.Rotate(r.pose.Theta, target.body)
 	a := dt / r.tau
@@ -293,29 +298,66 @@ func TestVelocityLeadRemovesOutwardDrift(t *testing.T) {
 }
 
 func TestNearGoalSettlesAndStops(t *testing.T) {
-	gen := DefaultGenConfig()
-	gen.Size, gen.Speed = 0.3, 0.2
-	rel, _ := Generate(gen)
-	cfg := DefaultConfig()
-	cfg.Method, cfg.Lead, cfg.NearGoal.Enabled = MethodFFPVelLead, 0.085, true
-	r := newSim(localization.Pose2{X: 0.3, Y: 0.2, Theta: 1.0})
-	d, err := NewDriver(rel, cfg, r.vision, r.clock)
-	if err != nil {
-		t.Fatal(err)
+	line := DefaultGenConfig()
+	line.Size, line.Speed = 0.3, 0.2
+	circle := DefaultGenConfig()
+	circle.Shape, circle.Size, circle.Speed = "circle", 0.6, 0.4
+	for _, tc := range []struct {
+		name     string
+		gen      GenConfig
+		stiction float64
+		dead     float64 // 0 なら newSim の既定 (40 ms)
+	}{
+		{"line", line, 0, 0},
+		{"line/stiction", line, 0.02, 0},
+		{"circle/stiction", circle, 0.02, 0},
+		{"circle/stiction/slower", circle, 0.02, 0.08}, // 実際の遅れが想定 (90 ms) より 40 ms 長い
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rel, _ := Generate(tc.gen)
+			cfg := DefaultConfig()
+			cfg.Method, cfg.Lead, cfg.NearGoal.Enabled = MethodFFPVelLead, 0.085, true
+			r := newSim(localization.Pose2{X: 0.3, Y: 0.2, Theta: 1.0})
+			r.stiction = tc.stiction
+			if tc.dead > 0 {
+				r.dead = tc.dead
+			}
+			d, err := NewDriver(rel, cfg, r.vision, r.clock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			run(t, r, d, 30)
+			if st, reason := d.Status(); st != Done {
+				t.Fatalf("ended in %s: %s", st, reason)
+			}
+			met := ComputeMetrics(d.Samples(), d.Reference().Knots())
+			smp := d.Samples()
+			t.Logf("final %.1f mm %.2f deg, settle swing ±%.2f deg, settle cmd max %.0f mm/s",
+				met.FinalPos, met.FinalHead, met.SettleHeadSwing, met.SettleCmdMax)
+			if met.FinalPos > 2.5 {
+				t.Errorf("must settle within the deadband: final %.1f mm", met.FinalPos)
+			}
+			last := smp[len(smp)-1]
+			if !last.NearGoal || last.CmdWorld.X != 0 || last.CmdWorld.Y != 0 || last.CmdOmega != 0 {
+				t.Errorf("once inside the deadband the command must be exactly zero: %+v", last)
+			}
+		})
 	}
-	run(t, r, d, 30)
-	if st, reason := d.Status(); st != Done {
-		t.Fatalf("ended in %s: %s", st, reason)
+}
+
+func TestPredictAddsCommandsNotYetSeen(t *testing.T) {
+	// 0.1 m/s を 0 s から出し続け、vision は 0.2 s に撮影、今 0.25 s、遅れ 0.09 s。
+	// vision に現れていないのは 0.11 s 以降に出した分 = 0.14 s × 0.1 m/s = 14 mm。
+	hist := []cmdRecord{{at: 0, vel: localization.Vec2{X: 0.1}}}
+	p := predict(localization.Pose2{}, sec(0.2), sec(0.25), 0.09, hist)
+	if math.Abs(p.X-0.014) > 1e-9 || p.Y != 0 {
+		t.Errorf("predicted %+v, want x=0.014", p)
 	}
-	met := ComputeMetrics(d.Samples(), d.Reference().Knots())
-	t.Logf("near-goal: final %.1f mm %.2f deg, settle swing ±%.2f deg, settle cmd max %.0f mm/s", met.FinalPos, met.FinalHead, met.SettleHeadSwing, met.SettleCmdMax)
-	if met.FinalPos > cfg.NearGoal.Deadband*cfg.NearGoal.ExitFactor*1000 {
-		t.Errorf("must settle within the deadband: final %.1f mm", met.FinalPos)
-	}
-	smp := d.Samples()
-	last := smp[len(smp)-1]
-	if !last.NearGoal || last.CmdWorld.X != 0 || last.CmdWorld.Y != 0 || last.CmdOmega != 0 {
-		t.Errorf("once inside the deadband the command must be exactly zero: %+v", last)
+	// 0.15 s に 0 へ変えたら 0.11〜0.15 s の 4 mm だけ
+	hist = append(hist, cmdRecord{at: sec(0.15)})
+	p = predict(localization.Pose2{}, sec(0.2), sec(0.25), 0.09, hist)
+	if math.Abs(p.X-0.004) > 1e-9 {
+		t.Errorf("predicted %+v, want x=0.004", p)
 	}
 }
 

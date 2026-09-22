@@ -142,18 +142,23 @@ func (m Metrics) Format(cfg Config, state State, reason string) string {
 func WriteCSV(w io.Writer, samples []Sample) error {
 	if _, err := fmt.Fprintln(w, "t_s,tv_s,vision_age_ms,held,pose_x_mm,pose_y_mm,pose_theta_rad,"+
 		"ref_x_mm,ref_y_mm,ref_theta_rad,ref_vx_mm_s,ref_vy_mm_s,ref_omega_rad_s,"+
-		"cmd_world_vx_mm_s,cmd_world_vy_mm_s,cmd_omega_rad_s,cmd_body_vx_mm_s,cmd_body_vy_mm_s"); err != nil {
+		"cmd_world_vx_mm_s,cmd_world_vy_mm_s,cmd_omega_rad_s,cmd_body_vx_mm_s,cmd_body_vy_mm_s,"+
+		"near_goal,pred_x_mm,pred_y_mm,pred_theta_rad"); err != nil {
 		return err
 	}
 	for _, s := range samples {
-		held := 0
+		held, ng := 0, 0
 		if s.Held {
 			held = 1
 		}
-		if _, err := fmt.Fprintf(w, "%.4f,%.4f,%.1f,%d,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f\n",
+		if s.NearGoal {
+			ng = 1
+		}
+		if _, err := fmt.Fprintf(w, "%.4f,%.4f,%.1f,%d,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%d,%.1f,%.1f,%.4f\n",
 			s.T, s.TV, s.Age*1000, held, s.Pose.X*1000, s.Pose.Y*1000, s.Pose.Theta,
 			s.Ref.Pos.X*1000, s.Ref.Pos.Y*1000, s.Ref.Theta, s.Ref.Vel.X*1000, s.Ref.Vel.Y*1000, s.Ref.YawRate,
-			s.CmdWorld.X*1000, s.CmdWorld.Y*1000, s.CmdOmega, s.CmdBody.X*1000, s.CmdBody.Y*1000); err != nil {
+			s.CmdWorld.X*1000, s.CmdWorld.Y*1000, s.CmdOmega, s.CmdBody.X*1000, s.CmdBody.Y*1000,
+			ng, s.Pred.X*1000, s.Pred.Y*1000, s.Pred.Theta); err != nil {
 			return err
 		}
 	}
