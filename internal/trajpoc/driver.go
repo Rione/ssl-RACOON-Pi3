@@ -12,6 +12,10 @@ import (
 // 撮影時刻は Clock と同じ時間軸 (Rock5A の単調時計) で渡すこと。
 type VisionSource func() (pose localization.Pose2, capture localization.Stamp, ok bool)
 
+// WheelSource は STM から届いた最新の 4 輪の回転速度 [rad/s] を FL, BL, BR, FR の順で返す。
+// 記録するだけで制御には使わない (スリップの切り分け用、traj-poc-log §5-16)。
+type WheelSource func() [4]float64
+
 // Clock は現在の単調時刻を返す。
 type Clock func() localization.Stamp
 
@@ -42,6 +46,7 @@ type Sample struct {
 	CmdOmega float64
 	CmdBody  localization.Vec2
 	Held     bool               // vision が古くて 0 を出した周期
+	Wheels   [4]float64         // その周期に読んだ車輪の回転速度 [rad/s] (FL, BL, BR, FR)
 	NearGoal bool               // 止まり際の √ブレーキ則で指令した周期
 	Pred     localization.Pose2 // そのときのスミス予測の位置 (NearGoal のときだけ)
 }
@@ -54,6 +59,7 @@ type Driver struct {
 	rel    []Knot
 	vision VisionSource
 	now    Clock
+	wheels WheelSource // nil なら記録しない
 
 	state  State
 	reason string
@@ -80,6 +86,13 @@ func NewDriver(rel []Knot, cfg Config, vision VisionSource, now Clock) (*Driver,
 	n := int(math.Ceil((MeasureBounds(rel).Duration+cfg.Settle+cfg.StartDelay+1)*125)) + 64
 	return &Driver{cfg: cfg, rel: append([]Knot(nil), rel...), vision: vision, now: now,
 		samples: make([]Sample, 0, n)}, nil
+}
+
+// SetWheelSource は車輪の回転速度の読み出しを登録する (記録用)。Arm の前に呼ぶ。
+func (d *Driver) SetWheelSource(w WheelSource) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.wheels = w
 }
 
 // Arm は現在の vision 姿勢に軌道を貼り付け、StartDelay 後を軌道の t=0 にして走らせる。
@@ -186,6 +199,9 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	}
 
 	s := Sample{T: t, TV: (capture - d.t0).Seconds(), Age: age, Capture: capture, Pose: pose}
+	if d.wheels != nil {
+		s.Wheels = d.wheels()
+	}
 	s.Ref = d.ref.At(s.TV)
 	if age > d.cfg.VisionHoldAge {
 		// 古い位置で閉ループを回すと振動する。止まって新しい vision を待つ。
