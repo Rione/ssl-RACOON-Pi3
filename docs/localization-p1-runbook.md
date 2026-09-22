@@ -27,7 +27,7 @@ go test ./...
 ## 1. ログを取る
 
 ```
-racoon-pi2 -loclog /var/log/racoon -team blue
+racoon-pi3 -loclog /var/log/racoon -team blue
 ```
 
 | フラグ | 意味 |
@@ -88,7 +88,7 @@ c = -s*R/r               -> モーメントアーム
 
 ```
 # 周囲を空ける。非常停止は効いたままである。
-racoon-pi2 -loclog /var/log/racoon -team blue -locident
+racoon-pi3 -loclog /var/log/racoon -team blue -locident
 
 # 約 40 秒で終わる。終わったらログを回収して
 loc_ident -log racoon-loc-20260913-101500-id3.mcap -v

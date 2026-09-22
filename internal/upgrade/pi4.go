@@ -7,9 +7,9 @@ func boardName() string {
 }
 
 func assetFilters() []string {
-	return []string{`^racoon-pi2-pi4_`}
+	return []string{`^racoon-pi3-pi4_`}
 }
 
 func archiveBinaryName() string {
-	return "racoon-pi2-pi4"
+	return "racoon-pi3-pi4"
 }

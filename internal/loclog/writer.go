@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 	"github.com/foxglove/mcap/go/mcap"
 )
 
@@ -324,7 +324,7 @@ func newSink(clock *Clock, opts Options) (*sink, error) {
 		f.Close()
 		return nil, fmt.Errorf("loclog: mcap writer: %w", err)
 	}
-	if err := mw.WriteHeader(&mcap.Header{Profile: "", Library: "ssl-RACOON-Pi2/loclog"}); err != nil {
+	if err := mw.WriteHeader(&mcap.Header{Profile: "", Library: "ssl-RACOON-Pi3/loclog"}); err != nil {
 		f.Close()
 		return nil, fmt.Errorf("loclog: write header: %w", err)
 	}

@@ -1,4 +1,6 @@
-# RACOON-Pi v2
+# RACOON-Pi v3
+
+> [ssl-RACOON-Pi2](https://github.com/Rione/ssl-RACOON-Pi2) の master (f183f35) から派生したリポジトリです。ロボット上のローカル制御 (自己位置推定・追従制御) への移行をここで進めます。
 
 ssl-RACOON-Controller などから送信された指令値をもとに、高速に情報を受信・制御を行うロボット側ソフトウェアです。
 
@@ -10,7 +12,7 @@ ssl-RACOON-Controller などから送信された指令値をもとに、高速�
 
 ```
 cmd/
-  racoon-pi2/          # メインエントリポイント
+  racoon-pi3/          # メインエントリポイント
   dip_test/            # Rock5A DIP 診断ツール
   spi_test/            # Rock5A SPI 診断ツール
 internal/
@@ -36,7 +38,7 @@ camera/                # カメラ処理（Python）
 カメラの YOLO モデルは git submodule（[Rione/ssl-YOLO-Detection](https://github.com/Rione/ssl-YOLO-Detection)）として `camera/yolo/` に含まれます。submodule ごと取得してください。
 
 ```bash
-git clone --recurse-submodules https://github.com/Rione/ssl-RACOON-Pi2.git
+git clone --recurse-submodules https://github.com/Rione/ssl-RACOON-Pi3.git
 
 # 既にクローン済みの場合
 git submodule update --init --recursive
@@ -46,10 +48,10 @@ git submodule update --init --recursive
 
 ```bash
 # Raspberry Pi 4B（UART / go-rpio）
-go build -tags pi4 -o racoon-pi2 ./cmd/racoon-pi2
+go build -tags pi4 -o racoon-pi3 ./cmd/racoon-pi3
 
 # Rock5A（SPI / rock5a-gpio-go）
-go build -tags rock5a -o racoon-pi2 ./cmd/racoon-pi2
+go build -tags rock5a -o racoon-pi3 ./cmd/racoon-pi3
 
 # Rock5A 診断ツール（開発 PC 上で Linux/arm64 向けにクロスビルドしてボードへ配置）
 GOOS=linux GOARCH=arm64 go build -tags rock5a -o dip-test ./cmd/dip_test
@@ -155,17 +157,17 @@ GitHub Release からボード別バイナリを取得します。Public リポ�
 
 | ビルド | Release アセット名（例） | フィルタ |
 |--------|-------------------------|----------|
-| Pi 4B | `racoon-pi2-pi4_v1.0.0_linux_arm64.tar.gz` | `^racoon-pi2-pi4_` |
-| Rock5A | `racoon-pi2-rock5a_v1.0.0_linux_arm64.tar.gz` | `^racoon-pi2-rock5a_` |
+| Pi 4B | `racoon-pi3-pi4_v1.0.0_linux_arm64.tar.gz` | `^racoon-pi3-pi4_` |
+| Rock5A | `racoon-pi3-rock5a_v1.0.0_linux_arm64.tar.gz` | `^racoon-pi3-rock5a_` |
 
-Release の tar には Go バイナリと `camera/` の Python ソース（**YOLO モデル `.pt` は含まない**）が同梱されます。キャリブレーション用の重みは Release ごとに 1 つだけ別アセット（`racoon-pi2-yolo_<version>_last.pt`、約 23 MiB）として公開します。初回セットアップ時にロボットへ配置してください。
+Release の tar には Go バイナリと `camera/` の Python ソース（**YOLO モデル `.pt` は含まない**）が同梱されます。キャリブレーション用の重みは Release ごとに 1 つだけ別アセット（`racoon-pi3-yolo_<version>_last.pt`、約 23 MiB）として公開します。初回セットアップ時にロボットへ配置してください。
 
 ```bash
 # バイナリと同じディレクトリで（git clone 時は submodule でも可）
 ./scripts/install-yolo-model.sh v1.0.0
 # または手動:
 # curl -fL -o camera/yolo/last.pt \
-#   https://github.com/Rione/ssl-RACOON-Pi2/releases/download/v1.0.0/racoon-pi2-yolo_1.0.0_last.pt
+#   https://github.com/Rione/ssl-RACOON-Pi3/releases/download/v1.0.0/racoon-pi3-yolo_1.0.0_last.pt
 ```
 
 自動アップデートはバイナリと Python のみ同期し、既にある `camera/yolo/*.pt` は上書きしません（毎回 ~23 MiB×2 の転送を避けるため）。

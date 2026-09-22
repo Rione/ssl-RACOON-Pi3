@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Plot Wheel(raw) from racoon-pi2 -ds log lines or WHEEL_RAW CSV.
+"""Plot Wheel(raw) from racoon-pi3 -ds log lines or WHEEL_RAW CSV.
 
 Usage:
-  ./racoon-pi2 -ds 2>&1 | python3 scripts/wheel-raw-graph.py
+  ./racoon-pi3 -ds 2>&1 | python3 scripts/wheel-raw-graph.py
   python3 scripts/wheel-raw-graph.py /path/to/log.txt
 
 Parses lines like:
@@ -104,7 +104,7 @@ def main():
         ax.autoscale_view()
         return l_fl, l_bl, l_br, l_fr
 
-    print("Reading Wheel(raw) from stdin… (pipe ./racoon-pi2 -ds output here)", file=sys.stderr)
+    print("Reading Wheel(raw) from stdin… (pipe ./racoon-pi3 -ds output here)", file=sys.stderr)
     FuncAnimation(fig, update, interval=100, cache_frame_data=False)
     plt.show()
 

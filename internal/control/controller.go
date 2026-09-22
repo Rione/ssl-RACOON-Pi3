@@ -7,7 +7,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // TODO(integration): 将来の送受信・周期実行の接続メモ（以下は未実装）。

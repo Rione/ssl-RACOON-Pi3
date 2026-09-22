@@ -80,7 +80,7 @@ const file_grSim_Packet_proto_rawDesc = "" +
 	"\x12grSim_Packet.proto\x1a\x14grSim_Commands.proto\x1a\x17grSim_Replacement.proto\"q\n" +
 	"\fgrSim_Packet\x12+\n" +
 	"\bcommands\x18\x01 \x01(\v2\x0f.grSim_CommandsR\bcommands\x124\n" +
-	"\vreplacement\x18\x02 \x01(\v2\x12.grSim_ReplacementR\vreplacementB.Z,github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen"
+	"\vreplacement\x18\x02 \x01(\v2\x12.grSim_ReplacementR\vreplacementB.Z,github.com/Rione/ssl-RACOON-Pi3/proto/pb_gen"
 
 var (
 	file_grSim_Packet_proto_rawDescOnce sync.Once

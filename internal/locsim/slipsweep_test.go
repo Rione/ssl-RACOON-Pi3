@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // スリップのプロセス雑音と時定数を掃引して既定値を選ぶ (2026-09-13 の決定)。

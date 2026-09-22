@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/loclog"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/loclog"
 )
 
 func newTestSPIRecorder(t *testing.T, profile string) (*SPIRecorder, *loclog.Clock) {

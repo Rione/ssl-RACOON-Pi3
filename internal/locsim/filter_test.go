@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // フィルタの効果を測る。合格条件は 2 段階 (2026-09-13 合意):

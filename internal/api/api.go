@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/link"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/mw"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/state"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/link"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/mw"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/state"
 )
 
 var (

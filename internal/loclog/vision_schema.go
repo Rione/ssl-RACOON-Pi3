@@ -9,7 +9,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen"
+	"github.com/Rione/ssl-RACOON-Pi3/proto/pb_gen"
 )
 
 // visionSchemaID は /in/vision に紐づく protobuf スキーマの ID。

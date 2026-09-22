@@ -6,9 +6,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/link"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/state"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/wheelgraph"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/link"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/state"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/wheelgraph"
 	"go.bug.st/serial"
 )
 

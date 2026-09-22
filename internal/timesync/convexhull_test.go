@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // 合成シナリオ。計画 §9 の検証項目 2 に対応する。

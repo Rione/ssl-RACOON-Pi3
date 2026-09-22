@@ -1,6 +1,6 @@
 syntax = "proto2";
 
-option go_package = "github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen";
+option go_package = "github.com/Rione/ssl-RACOON-Pi3/proto/pb_gen";
 
 message PiToMw {
   required Robot_Status robots_status = 1;
@@ -11,7 +11,7 @@ message PiToMw {
   // MACアドレス(NIC由来)。各ロボットの基板を一意に識別し、モータ個体差の
   // 管理に使う。"aa:bb:cc:dd:ee:ff" 形式。取得できない場合は未設定。
   optional string mac_address = 5;
-  // RACOON-Pi2 のバージョン (例 "v6.2.3")。開発ビルドでは "(devel)"/"unknown"
+  // RACOON-Pi3 のバージョン (例 "v6.2.3")。開発ビルドでは "(devel)"/"unknown"
   // などになる場合がある。RAVEN の Robot Status ペインで表示する。
   optional string version = 6;
 }

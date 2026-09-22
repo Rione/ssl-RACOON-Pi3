@@ -1,6 +1,6 @@
 syntax = "proto2";
 
-option go_package = "github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen";
+option go_package = "github.com/Rione/ssl-RACOON-Pi3/proto/pb_gen";
 
 message grSim_Robot_Command {
 required uint32 id = 1;

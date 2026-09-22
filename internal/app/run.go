@@ -14,12 +14,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/api"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/mw"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/receive"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/state"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/upgrade"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/wheelgraph"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/api"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/mw"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/receive"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/state"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/upgrade"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/wheelgraph"
 )
 
 func kickCheck(done <-chan struct{}) {
@@ -81,7 +81,7 @@ func Run() {
 
 	// バージョンを記録し、PiToMw で RAVEN へ通知する（Robot Status ペイン表示用）。
 	state.Version = upgrade.GetVersion()
-	log.Printf("RACOON-Pi2 version: %s", state.Version)
+	log.Printf("RACOON-Pi3 version: %s", state.Version)
 
 	go upgrade.ConfirmAndSelfUpdate()
 

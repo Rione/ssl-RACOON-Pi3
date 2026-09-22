@@ -2,7 +2,7 @@
 
 // SPI送受信テスト用ツール（Rock5A Master → ロボットMCU Slave）
 //
-// 本番 racoon-pi2-rock5a と同じ 20 バイト TX/RX レイアウト。
+// 本番 racoon-pi3-rock5a と同じ 20 バイト TX/RX レイアウト。
 // ヘッダ 0xFF + 18 バイトペイロード + フッタ 0xAA。
 // RX は先頭 11 バイトが有効データ、続く 7 バイトはパディング（0x00）。
 //

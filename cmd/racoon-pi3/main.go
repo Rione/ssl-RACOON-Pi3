@@ -2,7 +2,7 @@
 
 package main
 
-import "github.com/Rione/ssl-RACOON-Pi2/internal/app"
+import "github.com/Rione/ssl-RACOON-Pi3/internal/app"
 
 func main() {
 	app.Run()

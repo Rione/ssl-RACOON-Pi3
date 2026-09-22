@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
-	"github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/proto/pb_gen"
 	"github.com/foxglove/mcap/go/mcap"
 	"google.golang.org/protobuf/proto"
 )

@@ -2,7 +2,7 @@
 
 package pi4
 
-import "github.com/Rione/ssl-RACOON-Pi2/internal/state"
+import "github.com/Rione/ssl-RACOON-Pi3/internal/state"
 
 func ensureSendFrame() []byte {
 	payload := state.GetSendPayload()

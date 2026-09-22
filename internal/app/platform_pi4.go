@@ -3,9 +3,9 @@
 package app
 
 import (
-	"github.com/Rione/ssl-RACOON-Pi2/internal/pi4"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/receive"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/state"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/pi4"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/receive"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/state"
 )
 
 func registerPlatform() {

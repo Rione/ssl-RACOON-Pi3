@@ -9,7 +9,7 @@ package loclog
 import (
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // Clock は「壁時計の epoch」と「単調時計」を起動時に 1 度だけ組にして留め、

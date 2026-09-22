@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/loclog"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/loclog"
 )
 
 // 記録 -> 読み返し -> 同定 を通しで回す。

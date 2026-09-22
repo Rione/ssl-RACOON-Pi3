@@ -3,7 +3,7 @@
 package rock5a
 
 import (
-	"github.com/Rione/ssl-RACOON-Pi2/internal/link"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/link"
 )
 
 func RegisterLink() {

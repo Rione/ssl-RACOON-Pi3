@@ -19,7 +19,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // Truth は真値の 1 サンプル。

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 func config() Config                     { return Config{PositionGain: 2, HeadingGain: 3, MaxSpeed: 10, MaxYawRate: 10} }

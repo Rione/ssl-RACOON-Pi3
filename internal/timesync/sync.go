@@ -14,7 +14,7 @@ package timesync
 import (
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // Quality は写像の信頼度。

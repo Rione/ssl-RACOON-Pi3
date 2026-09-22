@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/state"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/util"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/state"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/util"
 	"github.com/stianeikeland/go-rpio/v4"
 )
 

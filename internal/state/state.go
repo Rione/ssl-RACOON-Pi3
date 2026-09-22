@@ -197,7 +197,7 @@ var (
 	// resolved. Set once at startup alongside the local IP.
 	MACAddress string = ""
 
-	// Version is the RACOON-Pi2 build version (e.g. "v6.2.3"), sent to RAVEN in
+	// Version is the RACOON-Pi3 build version (e.g. "v6.2.3"), sent to RAVEN in
 	// PiToMw and shown in the Robot Status pane. On dev builds it may be
 	// "(devel)"/"unknown". Set once at startup from upgrade.GetVersion().
 	Version string = ""

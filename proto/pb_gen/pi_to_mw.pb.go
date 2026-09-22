@@ -31,7 +31,7 @@ type PiToMw struct {
 	// MACアドレス(NIC由来)。各ロボットの基板を一意に識別し、モータ個体差の
 	// 管理に使う。"aa:bb:cc:dd:ee:ff" 形式。取得できない場合は未設定。
 	MacAddress *string `protobuf:"bytes,5,opt,name=mac_address,json=macAddress" json:"mac_address,omitempty"`
-	// RACOON-Pi2 のバージョン (例 "v6.2.3")。開発ビルドでは "(devel)"/"unknown"
+	// RACOON-Pi3 のバージョン (例 "v6.2.3")。開発ビルドでは "(devel)"/"unknown"
 	// などになる場合がある。RAVEN の Robot Status ペインで表示する。
 	Version       *string `protobuf:"bytes,6,opt,name=version" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -390,7 +390,7 @@ const file_pi_to_mw_proto_rawDesc = "" +
 	"\rmin_threshold\x18\x01 \x02(\tR\fminThreshold\x12#\n" +
 	"\rmax_threshold\x18\x02 \x02(\tR\fmaxThreshold\x12,\n" +
 	"\x12ball_detect_radius\x18\x03 \x02(\x05R\x10ballDetectRadius\x123\n" +
-	"\x15circularity_threshold\x18\x04 \x02(\x02R\x14circularityThresholdB.Z,github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen"
+	"\x15circularity_threshold\x18\x04 \x02(\x02R\x14circularityThresholdB.Z,github.com/Rione/ssl-RACOON-Pi3/proto/pb_gen"
 
 var (
 	file_pi_to_mw_proto_rawDescOnce sync.Once

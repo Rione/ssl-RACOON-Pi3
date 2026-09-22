@@ -243,7 +243,7 @@ const file_grSim_Commands_proto_rawDesc = "" +
 	"\x0egrSim_Commands\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x02(\x01R\ttimestamp\x12\"\n" +
 	"\fisteamyellow\x18\x02 \x02(\bR\fisteamyellow\x12;\n" +
-	"\x0erobot_commands\x18\x03 \x03(\v2\x14.grSim_Robot_CommandR\rrobotCommandsB.Z,github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen"
+	"\x0erobot_commands\x18\x03 \x03(\v2\x14.grSim_Robot_CommandR\rrobotCommandsB.Z,github.com/Rione/ssl-RACOON-Pi3/proto/pb_gen"
 
 var (
 	file_grSim_Commands_proto_rawDescOnce sync.Once

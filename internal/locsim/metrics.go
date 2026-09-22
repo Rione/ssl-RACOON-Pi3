@@ -5,7 +5,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // 効果を数値で示すための評価 (計画 §9)。

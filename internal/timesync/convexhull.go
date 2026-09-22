@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // 下側凸包によるクロックオフセット・スキュー推定 (計画 §5.3)。

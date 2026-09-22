@@ -6,7 +6,7 @@ before:
     - git submodule update --init --recursive
 builds:
   - id: racoon-pi4
-    main: ./cmd/racoon-pi2
+    main: ./cmd/racoon-pi3
     goos:
       - linux
     goarch:
@@ -14,26 +14,26 @@ builds:
       - arm
     tags:
       - pi4
-    binary: racoon-pi2-pi4
+    binary: racoon-pi3-pi4
     ldflags:
-      - -s -w -X github.com/Rione/ssl-RACOON-Pi2/internal/upgrade.Version={{.Version}}
+      - -s -w -X github.com/Rione/ssl-RACOON-Pi3/internal/upgrade.Version={{.Version}}
   - id: racoon-rock5a
-    main: ./cmd/racoon-pi2
+    main: ./cmd/racoon-pi3
     goos:
       - linux
     goarch:
       - arm64
     tags:
       - rock5a
-    binary: racoon-pi2-rock5a
+    binary: racoon-pi3-rock5a
     ldflags:
-      - -s -w -X github.com/Rione/ssl-RACOON-Pi2/internal/upgrade.Version={{.Version}}
+      - -s -w -X github.com/Rione/ssl-RACOON-Pi3/internal/upgrade.Version={{.Version}}
 
 archives:
   - id: pi4
     ids:
       - racoon-pi4
-    name_template: "racoon-pi2-pi4_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "racoon-pi3-pi4_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files: &camera_files
       - src: camera/*.py
       - src: camera/capture/**
@@ -43,11 +43,11 @@ archives:
   - id: rock5a
     ids:
       - racoon-rock5a
-    name_template: "racoon-pi2-rock5a_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "racoon-pi3-rock5a_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files: *camera_files
 
 release:
   # One shared weight file per release (not duplicated in each board tar).
   extra_files:
     - glob: camera/yolo/last.pt
-      name_template: "racoon-pi2-yolo_{{ .Version }}_last.pt"
+      name_template: "racoon-pi3-yolo_{{ .Version }}_last.pt"

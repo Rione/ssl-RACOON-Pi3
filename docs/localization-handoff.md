@@ -121,8 +121,8 @@ go test -v -run TestSlipParameterSweep ./internal/locsim/      スリップ掃�
 ### 2.2 実機
 
 ```
-racoon-pi2 -loclog /var/log/racoon -team blue                 記録のみ
-racoon-pi2 -loclog /var/log/racoon -team blue -locident       同定の加振（自走する）
+racoon-pi3 -loclog /var/log/racoon -team blue                 記録のみ
+racoon-pi3 -loclog /var/log/racoon -team blue -locident       同定の加振（自走する）
 loc_ident -log /var/log/racoon/racoon-loc-*.mcap -v           同定レポート
 loc_ident -log ... -out geometry.json                         設定として書き出す
 ```
@@ -436,7 +436,7 @@ BenchmarkEstimatorCycle-10   221492   5406 ns/op   0 B/op   0 allocs/op
 
 ```
 # 周囲を空ける。約 40 秒間ロボットが自走する。非常停止は効いたまま。
-racoon-pi2 -loclog /var/log/racoon -team blue -locident
+racoon-pi3 -loclog /var/log/racoon -team blue -locident
 loc_ident -log /var/log/racoon/racoon-loc-*.mcap -v -out geometry.json
 ```
 

@@ -23,7 +23,7 @@ import (
 
 var Version string
 
-const githubRepo = "Rione/ssl-RACOON-Pi2"
+const githubRepo = "Rione/ssl-RACOON-Pi3"
 
 // minReleaseBinarySize rejects truncated or mis-packaged release assets before
 // they can overwrite the running executable (e.g. empty wget downloads).
@@ -143,8 +143,8 @@ func archiveBinaryNames(cmdPath string) []string {
 
 	add(archiveBinaryName())
 	add(filepath.Base(cmdPath))
-	add("ssl-RACOON-Pi2")
-	add("racoon-pi2")
+	add("ssl-RACOON-Pi3")
+	add("racoon-pi3")
 	return names
 }
 

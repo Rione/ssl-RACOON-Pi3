@@ -5,9 +5,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/loclog"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/stmframe"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/loclog"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/stmframe"
 )
 
 // CommandLayout は下り (Rock5A -> STM) フレームのバイト配置。

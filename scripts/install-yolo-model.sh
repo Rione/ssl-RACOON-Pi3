@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-REPO="${RACOON_GITHUB_REPO:-Rione/ssl-RACOON-Pi2}"
+REPO="${RACOON_GITHUB_REPO:-Rione/ssl-RACOON-Pi3}"
 TAG="${1:-}"
 DEST_DIR="${RACOON_MODEL_DIR:-camera/yolo}"
 
@@ -35,7 +35,7 @@ main() {
     fi
 
     version="${tag#v}"
-    asset="racoon-pi2-yolo_${version}_last.pt"
+    asset="racoon-pi3-yolo_${version}_last.pt"
     mkdir -p "${DEST_DIR}"
     url="https://github.com/${REPO}/releases/download/${tag}/${asset}"
 

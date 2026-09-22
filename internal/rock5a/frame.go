@@ -5,7 +5,7 @@ package rock5a
 import (
 	"fmt"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/state"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/state"
 )
 
 func ensureSendFrame() []byte {

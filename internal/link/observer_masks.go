@@ -5,7 +5,7 @@ package link
 import (
 	"log"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/state"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/state"
 )
 
 // state 側のビット定義を link 内で参照しやすくしたもの。

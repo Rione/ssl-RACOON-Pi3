@@ -1,5 +1,5 @@
 syntax = "proto2";
-option go_package = "github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen";
+option go_package = "github.com/Rione/ssl-RACOON-Pi3/proto/pb_gen";
 
 import "ssl_vision_detection.proto";
 import "ssl_vision_geometry.proto";

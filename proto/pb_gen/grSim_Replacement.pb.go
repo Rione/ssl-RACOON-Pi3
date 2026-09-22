@@ -246,7 +246,7 @@ const file_grSim_Replacement_proto_rawDesc = "" +
 	"\x02vy\x18\x04 \x01(\x01R\x02vy\"p\n" +
 	"\x11grSim_Replacement\x12*\n" +
 	"\x04ball\x18\x01 \x01(\v2\x16.grSim_BallReplacementR\x04ball\x12/\n" +
-	"\x06robots\x18\x02 \x03(\v2\x17.grSim_RobotReplacementR\x06robotsB.Z,github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen"
+	"\x06robots\x18\x02 \x03(\v2\x17.grSim_RobotReplacementR\x06robotsB.Z,github.com/Rione/ssl-RACOON-Pi3/proto/pb_gen"
 
 var (
 	file_grSim_Replacement_proto_rawDescOnce sync.Once

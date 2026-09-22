@@ -3,7 +3,7 @@ package locsim
 import (
 	"sort"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // RunFilter は合成したセンサ列を推定器へ流し、各車輪周期の出力を返す。

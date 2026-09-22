@@ -5,8 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/loclog"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/loclog"
 )
 
 // IdentDriver は加振シーケンスをリンク層の速度指令へ流し込む。

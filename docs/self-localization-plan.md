@@ -75,7 +75,7 @@ STM から来る 4 輪の車輪速度と IMU、および SSL-Vision から直接
 
 | 名前 | パス | 言語 | 役割 |
 | --- | --- | --- | --- |
-| **ssl-RACOON-Pi2** | `~/ssl_ws/ssl-RACOON-Pi2` | Go | **本計画の実装先。** Rock5A / Pi4B 上で動く |
+| **ssl-RACOON-Pi3** | `~/ssl_ws/ssl-RACOON-Pi3` | Go | **本計画の実装先。** Rock5A / Pi4B 上で動く |
 | ssl-RAVEN | `~/ssl_ws/ssl-RAVEN` | Java (Gradle) | AI・戦略・世界モデル。ブランチ `for-toyota-game` |
 | ssl-Circuit | `~/ssl_ws/ssl-RAVEN/ssl-Circuit` | C / C++ | STM ファームウェア。`2026/` が現行世代 |
 
@@ -107,7 +107,7 @@ Rock5A が**マスタ**、STM が**スレーブ**。8 ms 周期（125 Hz）。20
 | **12–18** | **0 埋め（7 バイトの空き）** ← IMU 用に使える |
 | 19 | フッタ `0xAA` |
 
-**下り（Rock5A → STM）** — 出典 `robot.c:87` (`Robot_RockApplyRecvPacket`) / `ssl-RACOON-Pi2/internal/state/state.go` (`SendPayload`)
+**下り（Rock5A → STM）** — 出典 `robot.c:87` (`Robot_RockApplyRecvPacket`) / `ssl-RACOON-Pi3/internal/state/state.go` (`SendPayload`)
 
 | バイト | 内容 | STM 側で使われているか |
 | --- | --- | --- |
@@ -153,7 +153,7 @@ int16_t MotorDriver::motorToWheelScaled(int16_t motor_omega) {
 
 ### 3.3 ⚠ 機体パラメータが 4 ソースで食い違っている
 
-| パラメータ | 旧世代 STM<br>`STMDev/main_F446RE/src/unit/MotorDriver.hpp` | 新世代 STM<br>`Firmware/.../src/config/parammeter.h` | ssl-RAVEN<br>`app/config/system_model_sim.yaml` | ssl-RACOON-Pi2<br>`internal/rock5a/config.go` |
+| パラメータ | 旧世代 STM<br>`STMDev/main_F446RE/src/unit/MotorDriver.hpp` | 新世代 STM<br>`Firmware/.../src/config/parammeter.h` | ssl-RAVEN<br>`app/config/system_model_sim.yaml` | ssl-RACOON-Pi3<br>`internal/rock5a/config.go` |
 | --- | --- | --- | --- | --- |
 | 車輪半径 | **27 mm**<br>`WHEEL_DIAMETER 54` | **30 mm**<br>`ROBOT_WHEEL_RADIUS 0.03f` | **26 mm**<br>`wheel_radius_mm: 26.0` | **30 mm**<br>`WheelDiameterMm = 60.0` |
 | 回転のモーメントアーム | **85 mm**<br>`WHEEL_BASE_DIAMETER 170` | **75 mm**<br>`ROBOT_WHEEL_BASE_RADIUS 0.075f` | **90 mm**<br>`robot_radius_mm: 90.0` | — |

@@ -9,9 +9,9 @@ import (
 	"net"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/state"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/util"
-	"github.com/Rione/ssl-RACOON-Pi2/proto/pb_gen"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/state"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/util"
+	"github.com/Rione/ssl-RACOON-Pi3/proto/pb_gen"
 	"google.golang.org/protobuf/proto"
 )
 

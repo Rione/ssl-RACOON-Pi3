@@ -27,8 +27,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/loclog"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/loclog"
 )
 
 func main() {

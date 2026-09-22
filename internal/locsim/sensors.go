@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // 真値からセンサ列を合成する。

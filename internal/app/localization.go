@@ -6,11 +6,11 @@ import (
 	"log"
 	"time"
 
-	"github.com/Rione/ssl-RACOON-Pi2/internal/link"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/locadapter"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/loclog"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/state"
-	"github.com/Rione/ssl-RACOON-Pi2/internal/timesync"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/link"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/locadapter"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/loclog"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/state"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/timesync"
 )
 
 // startLocalization は自己位置推定の計測基盤 (計画 P1) を起動する。
