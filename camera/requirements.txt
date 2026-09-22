@@ -1,0 +1,17 @@
+# Camera process dependencies.
+#
+# Normal operation (HSV + contour detection) only needs OpenCV and numpy.
+# Calibration (/calibballcolor) additionally loads YOLO via ultralytics, but it
+# is imported lazily so it is only required when calibration is actually used.
+
+# Common (all boards)
+opencv-python-headless
+numpy
+
+# Raspberry Pi 4B only (MIPI CSI via Picamera2).
+# On Rock5A the camera is read through OpenCV V4L2 (/dev/video11), so picamera2
+# is not needed there.
+picamera2; platform_machine == "aarch64"
+
+# Calibration only (YOLO inference). Heavy; pulls in torch.
+ultralytics

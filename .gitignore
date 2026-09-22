@@ -1,0 +1,12 @@
+RACOON-Pi
+ssl-RACOON-Pi2
+/racoon-pi2
+/racoon-pi2-pi4
+/racoon-pi2-rock5a
+/spi_test
+/dip-test
+/dip_test
+.env
+.DS_Store
+__pycache__/
+*.pyc

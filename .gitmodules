@@ -1,0 +1,3 @@
+[submodule "camera/yolo"]
+	path = camera/yolo
+	url = https://github.com/Rione/ssl-YOLO-Detection.git

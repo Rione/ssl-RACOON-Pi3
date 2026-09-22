@@ -1,0 +1,15 @@
+[Unit]
+Description=RACOON MIPI camera overlay auto-selection
+DefaultDependencies=no
+After=local-fs.target
+Before=ssl-racoon.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c 'if [ -f /boot/firmware/config.txt ]; then /usr/local/sbin/select-pi4-camera.sh; elif [ -f /boot/dietpiEnv.txt ]; then /usr/local/sbin/select-rock5a-camera.sh; else exit 0; fi'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,53 @@
+version: 2
+before:
+  hooks:
+    # Fetch the YOLO submodule so release.extra_files can publish last.pt.
+    # Model weights are NOT bundled in board archives (keeps self-update small).
+    - git submodule update --init --recursive
+builds:
+  - id: racoon-pi4
+    main: ./cmd/racoon-pi2
+    goos:
+      - linux
+    goarch:
+      - arm64
+      - arm
+    tags:
+      - pi4
+    binary: racoon-pi2-pi4
+    ldflags:
+      - -s -w -X github.com/Rione/ssl-RACOON-Pi2/internal/upgrade.Version={{.Version}}
+  - id: racoon-rock5a
+    main: ./cmd/racoon-pi2
+    goos:
+      - linux
+    goarch:
+      - arm64
+    tags:
+      - rock5a
+    binary: racoon-pi2-rock5a
+    ldflags:
+      - -s -w -X github.com/Rione/ssl-RACOON-Pi2/internal/upgrade.Version={{.Version}}
+
+archives:
+  - id: pi4
+    ids:
+      - racoon-pi4
+    name_template: "racoon-pi2-pi4_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: &camera_files
+      - src: camera/*.py
+      - src: camera/capture/**
+      - src: camera/detect/**
+      - src: camera/transport/**
+      - src: camera/requirements.txt
+  - id: rock5a
+    ids:
+      - racoon-rock5a
+    name_template: "racoon-pi2-rock5a_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: *camera_files
+
+release:
+  # One shared weight file per release (not duplicated in each board tar).
+  extra_files:
+    - glob: camera/yolo/last.pt
+      name_template: "racoon-pi2-yolo_{{ .Version }}_last.pt"
