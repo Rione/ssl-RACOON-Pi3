@@ -104,6 +104,7 @@ func TestReferenceInterpolation(t *testing.T) {
 // stiction > 0 なら、止まっている機体はそれ未満の並進の指令では動かない (静止摩擦、traj-poc-log §5-14)。
 type simRobot struct {
 	stiction                    float64
+	wheelScale, wheelRotScale   float64 // 車輪の読みの倍率 (寸法の誤差の代わり)。0 なら 1
 	now                         localization.Stamp
 	pose                        localization.Pose2
 	vel                         localization.Vec2 // world
@@ -128,6 +129,23 @@ type simFrame struct {
 }
 
 func sec(s float64) localization.Stamp { return localization.Stamp(s * 1e9) }
+
+// wheels は機体の今の速度から、PoCGeometry で車輪の回転速度 (SPI の並び) を作る。
+func (r *simRobot) wheels() [4]float64 {
+	k, err := localization.NewKinematics(PoCGeometry())
+	if err != nil {
+		panic(err)
+	}
+	ts, rs := r.wheelScale, r.wheelRotScale
+	if ts == 0 {
+		ts = 1
+	}
+	if rs == 0 {
+		rs = 1
+	}
+	b := localization.RotateInv(r.pose.Theta, r.vel)
+	return k.WheelFromBody(b.X*ts, b.Y*ts, r.omega*rs)
+}
 
 func (r *simRobot) clock() localization.Stamp { return r.now }
 
@@ -183,6 +201,11 @@ func newSim(start localization.Pose2) *simRobot {
 // run は 125 Hz の SPI 周期で Driver を回す (1 周期を 2 ms 刻みで積分)。
 func run(t *testing.T, r *simRobot, d *Driver, maxSec float64) {
 	t.Helper()
+	if d.wheels == nil {
+		if err := d.SetWheelSource(r.wheels); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := d.Arm(); err != nil {
 		t.Fatal(err)
 	}
@@ -358,6 +381,58 @@ func TestPredictAddsCommandsNotYetSeen(t *testing.T) {
 	p = predict(localization.Pose2{}, sec(0.2), sec(0.25), 0.09, hist)
 	if math.Abs(p.X-0.004) > 1e-9 {
 		t.Errorf("predicted %+v, want x=0.004", p)
+	}
+}
+
+func TestDriverAbortsWhenVisionDoesNotFollowWheels(t *testing.T) {
+	// 実機で起きたこと: vision の模様が止まっている別のロボットのもので、ロボットは見張られずに走った。
+	for _, shape := range []string{"circle", "turn"} {
+		t.Run(shape, func(t *testing.T) {
+			gen := DefaultGenConfig()
+			gen.Shape, gen.Size, gen.Speed = shape, 0.6, 0.4
+			if shape == "turn" {
+				gen.Size, gen.Speed, gen.Accel = math.Pi/2, 1.0, 3.0
+			}
+			rel, _ := Generate(gen)
+			r := newSim(localization.Pose2{X: 0.3, Y: 0.2, Theta: 1.0})
+			frozen := r.pose
+			wrong := func() (localization.Pose2, localization.Stamp, bool) { return frozen, r.now - sec(0.004), true }
+			d, err := NewDriver(rel, DefaultConfig(), wrong, r.clock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			run(t, r, d, 30)
+			st, reason := d.Status()
+			if st != Aborted || !strings.Contains(reason, "does not follow the wheels") {
+				t.Fatalf("must abort on the wheel/vision mismatch, got %s: %s", st, reason)
+			}
+			smp := d.Samples()
+			t.Logf("aborted at t=%.2f s after moving %.0f mm / %.0f deg: %s", smp[len(smp)-1].T,
+				math.Hypot(r.pose.X-frozen.X, r.pose.Y-frozen.Y)*1000, localization.AngleDiff(r.pose.Theta, frozen.Theta)*180/math.Pi, reason)
+		})
+	}
+}
+
+func TestWheelCheckToleratesWrongDimensions(t *testing.T) {
+	// 寸法は未確定。車輪の読みが 0.7〜1.4 倍、回転が 0.4〜2.5 倍ずれていても誤って止めない。
+	circle := DefaultGenConfig()
+	circle.Shape, circle.Size, circle.Speed = "circle", 0.6, 0.4
+	turn := DefaultGenConfig()
+	turn.Shape, turn.Size, turn.Speed, turn.Accel = "turn", math.Pi/2, 1.0, 3.0
+	for _, g := range []GenConfig{circle, turn} {
+		for _, sc := range [][2]float64{{0.7, 0.4}, {1.4, 2.5}, {1, 1}} {
+			rel, _ := Generate(g)
+			r := newSim(localization.Pose2{X: 0.3, Y: 0.2, Theta: 1.0})
+			r.wheelScale, r.wheelRotScale = sc[0], sc[1]
+			d, err := NewDriver(rel, DefaultConfig(), r.vision, r.clock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			run(t, r, d, 30)
+			if st, reason := d.Status(); st != Done {
+				t.Errorf("%s with wheel scale %v: ended in %s: %s", g.Shape, sc, st, reason)
+			}
+		}
 	}
 }
 

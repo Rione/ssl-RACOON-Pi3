@@ -140,13 +140,16 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 	if err != nil {
 		fail("trajectory rejected: %v", err)
 	}
-	// 車輪の回転速度は記録だけ (スリップの切り分け)。STM の生値は 0.01 rad/s 単位。
+	// 車輪の回転速度 (STM の生値は 0.01 rad/s 単位) は記録する。
 	// OverrideVelocity は SPI の周期の goroutine から呼ばれ、state.Recvdata もそこで書かれるので競合しない。
-	driver.SetWheelSource(func() [4]float64 {
+	// 車輪と vision の食い違いの検査にも使う (vision が別の物を見ていると枠が効かないため、traj-poc-log §5-18)。
+	if err := driver.SetWheelSource(func() [4]float64 {
 		r := state.Recvdata
 		return [4]float64{float64(r.FlWheelSpeed) / 100, float64(r.BlWheelSpeed) / 100,
 			float64(r.BrWheelSpeed) / 100, float64(r.FrWheelSpeed) / 100}
-	})
+	}); err != nil {
+		fail("wheel check: %v", err)
+	}
 
 	log.Printf("[TRAJ] waiting for vision of %s %d ...", team, visionID)
 	deadline := time.Now().Add(5 * time.Second)

@@ -59,7 +59,8 @@ type Driver struct {
 	rel    []Knot
 	vision VisionSource
 	now    Clock
-	wheels WheelSource // nil なら記録しない
+	wheels WheelSource       // nil なら記録も検査もしない
+	check  *wheelVisionCheck // 車輪と vision の食い違いの検査 (wheels があるとき)
 
 	state  State
 	reason string
@@ -88,11 +89,17 @@ func NewDriver(rel []Knot, cfg Config, vision VisionSource, now Clock) (*Driver,
 		samples: make([]Sample, 0, n)}, nil
 }
 
-// SetWheelSource は車輪の回転速度の読み出しを登録する (記録用)。Arm の前に呼ぶ。
-func (d *Driver) SetWheelSource(w WheelSource) {
+// SetWheelSource は車輪の回転速度の読み出しを登録する。Arm の前に呼ぶ。
+// 記録するほか、車輪と vision の食い違いの検査 (consistency.go) に使う。
+func (d *Driver) SetWheelSource(w WheelSource) error {
+	c, err := newWheelVisionCheck(PoCGeometry())
+	if err != nil {
+		return err
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.wheels = w
+	d.wheels, d.check = w, c
+	return nil
 }
 
 // Arm は現在の vision 姿勢に軌道を貼り付け、StartDelay 後を軌道の t=0 にして走らせる。
@@ -201,6 +208,11 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	s := Sample{T: t, TV: (capture - d.t0).Seconds(), Age: age, Capture: capture, Pose: pose}
 	if d.wheels != nil {
 		s.Wheels = d.wheels()
+		// vision が古いときは下の「止まって待つ」に任せる (止まった vision と比べると必ず食い違う)
+		if reason, bad := d.check.step(t, dt, s.Wheels, pose, s.TV); bad && age <= d.cfg.VisionHoldAge {
+			d.abort(reason)
+			return 0, 0, 0, true
+		}
 	}
 	s.Ref = d.ref.At(s.TV)
 	if age > d.cfg.VisionHoldAge {

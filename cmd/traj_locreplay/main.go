@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/trajpoc"
 )
 
 // wheelLag は CSV の行の車輪の値の古さ。その周期の指令を作る時点で読めるのは
@@ -45,6 +46,7 @@ type frame struct {
 
 func main() {
 	ident := flag.Bool("ident", false, "機体パラメータを同定する (推定器は回さない)")
+	checkOnly := flag.Bool("check", false, "PoC の車輪と vision の食い違いの検査だけを流す (誤って止めないか・止めるべきで止めるか)")
 	out := flag.String("out", "", "-ident: 同定結果の書き出し先 JSON")
 	geomPath := flag.String("geometry", "", "機体パラメータの JSON。空なら既定値 (未確定の値)")
 	delayMs := flag.Float64("delaycomp", 0, "vision の時刻から引く一定の遅れ [ms] (timesync が分離できない片道遅延)")
@@ -60,6 +62,22 @@ func main() {
 
 	if *ident {
 		runIdent(flag.Args(), *out)
+		return
+	}
+	if *checkOnly {
+		for _, p := range flag.Args() {
+			rows, err := readCSV(p)
+			check(err)
+			ss := make([]trajpoc.CheckSample, len(rows))
+			for i, r := range rows {
+				ss[i] = trajpoc.CheckSample{T: r.t, TV: r.tv, Pose: r.pose, Wheels: r.wheels}
+			}
+			if t, reason, stop := trajpoc.ReplayWheelCheck(ss); stop {
+				fmt.Printf("%s: STOP at t=%.2f s: %s\n", p, t, reason)
+			} else {
+				fmt.Printf("%s: ok (never stopped)\n", p)
+			}
+		}
 		return
 	}
 
