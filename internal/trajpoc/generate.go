@@ -10,10 +10,10 @@ import (
 
 // GenConfig は仮想軌道の作り方。座標は開始位置が原点・ロボットの前方が +x の相対。
 type GenConfig struct {
-	Shape   string  // line | square | circle | fig8
-	Size    float64 // 形の大きさ [m] (line は往復の片道、square は一辺、circle は直径、fig8 は輪 1 つの直径)
-	Speed   float64 // 巡航速度 [m/s]
-	Accel   float64 // 加減速度と、曲がるときの横加速度の上限 [m/s^2]
+	Shape   string  // line | square | circle | fig8 | turn
+	Size    float64 // 形の大きさ [m] (line は往復の片道、square は一辺、circle は直径、fig8 は輪 1 つの直径、turn は回す角度 [rad])
+	Speed   float64 // 巡航速度 [m/s] (turn は角速度 [rad/s])
+	Accel   float64 // 加減速度と、曲がるときの横加速度の上限 [m/s^2] (turn は角加速度 [rad/s^2])
 	Dt      float64 // 点の間隔 [s] (RAVEN は 60 Hz = 約 16 ms)
 	Heading string  // fixed (向きを変えない) | tangent (進行方向を向く。circle/fig8 のみ)
 	Laps    int
@@ -38,6 +38,9 @@ func Generate(c GenConfig) ([]Knot, error) {
 	if c.Heading != "fixed" && c.Heading != "tangent" {
 		return nil, fmt.Errorf("unknown heading %q (fixed|tangent)", c.Heading)
 	}
+	if c.Shape == "turn" {
+		return generateTurn(c), nil
+	}
 	var one []leg
 	switch c.Shape {
 	case "line":
@@ -56,7 +59,7 @@ func Generate(c GenConfig) ([]Knot, error) {
 		up, down := arcLeg(c.Size/2, 1), arcLeg(c.Size/2, -1)
 		one = []leg{{pts: append(up.pts, down.pts[1:]...), radius: c.Size / 2}}
 	default:
-		return nil, fmt.Errorf("unknown shape %q (line|square|circle|fig8)", c.Shape)
+		return nil, fmt.Errorf("unknown shape %q (line|square|circle|fig8|turn)", c.Shape)
 	}
 	if c.Heading == "tangent" && (c.Shape == "line" || c.Shape == "square") {
 		return nil, fmt.Errorf("heading=tangent needs a smooth path (circle|fig8): %s turns in place at its corners", c.Shape)
@@ -85,6 +88,24 @@ func Generate(c GenConfig) ([]Knot, error) {
 		t0 += dur
 	}
 	return knots, nil
+}
+
+// generateTurn はその場で +Size [rad] 回って 0 に戻る (位置は原点のまま)。角速度の指令と実際の
+// 回り方を比べる開ループの試験に使う (-trajkth 0 で向きの P を切り、参照の角速度だけで回す)。
+func generateTurn(c GenConfig) []Knot {
+	knots := []Knot{{T: 0}}
+	t0 := 0.0
+	for _, dir := range []float64{1, -1} {
+		dur := profileDuration(c.Size, c.Speed, c.Accel)
+		n := int(math.Ceil(dur / c.Dt))
+		start := knots[len(knots)-1].Pose.Theta
+		for k := 1; k <= n; k++ {
+			tl := math.Min(float64(k)*c.Dt, dur)
+			knots = append(knots, Knot{T: t0 + tl, Pose: localization.Pose2{Theta: start + dir*profileDistance(tl, c.Size, c.Speed, c.Accel)}})
+		}
+		t0 += dur
+	}
+	return knots
 }
 
 // WriteJSONL は軌道を標準入力へ流す形式で書く (最後に EndMarker)。

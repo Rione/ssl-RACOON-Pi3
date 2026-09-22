@@ -60,6 +60,15 @@ func TestGenerateShapesRoundTrip(t *testing.T) {
 			t.Errorf("%s: default generator output must pass the default safety limits: %v", shape, err)
 		}
 	}
+	turn, err := Generate(GenConfig{Shape: "turn", Size: math.Pi / 2, Speed: 1.0, Accel: 3.0, Dt: 0.016, Heading: "fixed", Laps: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tb := MeasureBounds(turn)
+	mid := turn[len(turn)/2].Pose.Theta
+	if tb.MaxRadius != 0 || math.Abs(mid-math.Pi/2) > 0.02 || math.Abs(turn[len(turn)-1].Pose.Theta) > 1e-9 || tb.MaxYawRate > 1.01 {
+		t.Errorf("turn must spin in place to +90 deg and back: mid %.3f rad, bounds %+v", mid, tb)
+	}
 	if _, err := Generate(GenConfig{Shape: "square", Size: 0.5, Speed: 0.4, Accel: 1, Dt: 0.016, Heading: "tangent", Laps: 1}); err == nil {
 		t.Error("tangent heading on a square (turns in place) must be rejected")
 	}
