@@ -21,15 +21,19 @@ const (
 	//   - vision の位置は撮影時刻のものなので、直前の指令で「今」まで進めてから誤差を取る
 	//   - 指令が効くまでの遅れ (Lead) だけ先の参照を狙う
 	MethodFFPLead Method = "ffp_lead"
+	// MethodFFPVelLead は速度の先回しだけを Lead 先の参照から取る。位置の目標は今の時刻のまま、
+	// vision の位置の外挿もしない。指令が効くまでの遅れで速度の向きが古くなり、曲がりで外へ
+	// 膨らむ (と考えられる) 分だけを打ち消す。遅れと横滑りを見分けるための手法。
+	MethodFFPVelLead Method = "ffp_vlead"
 )
 
 // ParseMethod は文字列を Method にする。
 func ParseMethod(s string) (Method, error) {
 	switch Method(s) {
-	case MethodP, MethodFFP, MethodFFPLead:
+	case MethodP, MethodFFP, MethodFFPLead, MethodFFPVelLead:
 		return Method(s), nil
 	}
-	return "", fmt.Errorf("unknown method %q (p|ffp|ffp_lead)", s)
+	return "", fmt.Errorf("unknown method %q (p|ffp|ffp_lead|ffp_vlead)", s)
 }
 
 // Config は PoC の設定。ゲインは [1/s]、速度・加速度は SI。
@@ -106,6 +110,9 @@ func command(c Config, ref *Reference, t float64, pose localization.Pose2, age f
 		p.Y += prevVel.Y * age
 		th = localization.WrapAngle(th + prevOmega*age)
 		target = ref.At(t + c.Lead)
+	case MethodFFPVelLead:
+		ahead := ref.At(t + c.Lead)
+		target.Vel, target.YawRate = ahead.Vel, ahead.YawRate
 	}
 	vel = localization.Vec2{
 		X: target.Vel.X + c.Kp*(target.Pos.X-p.X),

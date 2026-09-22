@@ -50,11 +50,11 @@ const (
 func registerTrajPocFlags() {
 	d := trajpoc.DefaultConfig()
 	flag.BoolVar(&trajPoc.enabled, "trajpoc", false, "標準入力の時刻つき軌道を追従する PoC を実行する。ロボットが自走するので注意")
-	flag.StringVar(&trajPoc.method, "trajmethod", string(d.Method), "追従の手法 (p | ffp | ffp_lead)")
+	flag.StringVar(&trajPoc.method, "trajmethod", string(d.Method), "追従の手法 (p | ffp | ffp_lead | ffp_vlead)")
 	flag.StringVar(&trajPoc.interp, "trajinterp", string(d.Interp), "点の間の補間 (linear | hermite)")
 	flag.Float64Var(&trajPoc.kp, "trajkp", d.Kp, "位置の P ゲイン [1/s]")
 	flag.Float64Var(&trajPoc.kth, "trajkth", d.Kth, "向きの P ゲイン [1/s]")
-	flag.Float64Var(&trajPoc.leadMs, "trajlead", d.Lead*1000, "ffp_lead で先を狙う時間 [ms]")
+	flag.Float64Var(&trajPoc.leadMs, "trajlead", d.Lead*1000, "ffp_lead / ffp_vlead で先を狙う時間 [ms]")
 	flag.Float64Var(&trajPoc.maxSpeed, "trajmaxspeed", d.MaxSpeed, "並進速度の上限 [m/s]")
 	flag.Float64Var(&trajPoc.fence, "trajfence", d.Fence, "軌道が収まるべき開始位置からの半径 [m]")
 	flag.IntVar(&trajPoc.visionID, "trajvisionid", -1, "SSL-Vision 上の自機 ID (カバーの模様)。-1 なら DIP スイッチの ID")

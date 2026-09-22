@@ -241,6 +241,48 @@ func TestDriverClosedLoopComparesMethods(t *testing.T) {
 	}
 }
 
+// 円を回ると、速度の向きが遅れて効く分だけ外へ膨らむ。速度の先回しだけを先の参照から取れば
+// (ffp_vlead) 膨らみは消えるはず。仮の機体 (むだ時間 40 ms + 一次遅れ 60 ms) で確かめる。
+func TestVelocityLeadRemovesOutwardDrift(t *testing.T) {
+	gen := DefaultGenConfig()
+	gen.Shape, gen.Size, gen.Speed = "circle", 0.6, 0.4
+	rel, err := Generate(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drift := func(m Method, lead float64) float64 {
+		cfg := DefaultConfig()
+		cfg.Method, cfg.Lead = m, lead
+		r := newSim(localization.Pose2{})
+		d, err := NewDriver(rel, cfg, r.vision, r.clock)
+		if err != nil {
+			t.Fatal(err)
+		}
+		run(t, r, d, 60)
+		// 相対の円の中心 (0, 0.3) は開始姿勢 (原点・向き 0) のままワールドでも同じ。
+		var sum float64
+		var n int
+		for _, s := range d.Samples() {
+			if s.TV > 1.0 && s.TV < d.Reference().End()-1.0 {
+				sum += math.Hypot(s.Pose.X, s.Pose.Y-0.3) - 0.3
+				n++
+			}
+		}
+		return sum / float64(n) * 1000
+	}
+	base := drift(MethodFFP, 0)
+	t.Logf("circle 0.4 m/s: ffp radial drift %+.1f mm", base)
+	for _, lead := range []float64{0.05, 0.1, 0.15} {
+		t.Logf("circle 0.4 m/s: ffp_vlead lead=%3.0fms radial drift %+.1f mm", lead*1000, drift(MethodFFPVelLead, lead))
+	}
+	if base < 2 {
+		t.Errorf("the simulated robot should drift outward with plain ffp (got %+.1f mm)", base)
+	}
+	if v := drift(MethodFFPVelLead, 0.1); math.Abs(v) > math.Abs(base)*0.5 {
+		t.Errorf("velocity lead of the plant delay should remove most of the drift: %+.1f mm vs %+.1f mm", v, base)
+	}
+}
+
 func TestDriverAbortsOnVisionLoss(t *testing.T) {
 	rel, _ := Generate(DefaultGenConfig())
 	r := newSim(localization.Pose2{})
