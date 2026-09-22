@@ -86,6 +86,7 @@ func processSPICommunication(conn spi.Conn) {
 
 	if frameErr == nil {
 		state.Recvdata = parseRecvBufAt(spiRxWindow[:], frameOffset)
+		state.SPIRxValidAt.Store(after.UnixNano())
 
 		state.FlWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.FlWheelSpeed)
 		state.BlWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.BlWheelSpeed)

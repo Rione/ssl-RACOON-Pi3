@@ -100,6 +100,10 @@ var IsControlByRobotMode bool
 // その間は PC からの DATA (速度・キック) を反映しない (docs/traj-poc.md)。
 var TrajPoCActive atomic.Bool
 
+// SPIRxValidAt は STM から最後に正しいフレームを受け取った時刻 (UnixNano)。0 なら一度も無い。
+// PoC は STM が応答していないと走り出さない (車輪の値が 0 のまま更新されず、車輪と vision の検査も効かないため)。
+var SPIRxValidAt atomic.Int64
+
 type SendPayload struct {
 	VelX          int16
 	VelY          int16

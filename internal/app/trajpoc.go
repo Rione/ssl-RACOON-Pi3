@@ -163,6 +163,20 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
+	// STM が応答しているか。受信が壊れていると車輪の値が 0 のまま更新されず、
+	// 車輪と vision の食い違いの検査も効かない (traj-poc-log §5-19)。
+	deadline = time.Now().Add(time.Second)
+	for !stmFresh() {
+		if time.Now().After(deadline) {
+			fail("no valid SPI frames from the STM (power / cable / battery?)")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if v := state.Recvdata.Volt; v < uint8(state.BatteryLowThreshold) {
+		fail("battery too low: %.1f V (< %.1f V)", float64(v)/10, float64(state.BatteryLowThreshold)/10)
+	}
+	log.Printf("[TRAJ] STM ok, battery %.1f V", float64(state.Recvdata.Volt)/10)
+
 	// 3. 走らせる。速度の差し替え (この時点では 0) を先に登録してから非常停止を解く。
 	//    逆順だと、解いた瞬間に差し替え前の速度が流れる隙間ができる。
 	link.SetVelocityOverride(driver)
@@ -186,6 +200,9 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 	defer tick.Stop()
 	lastPrint := time.Now()
 	for {
+		if !stmFresh() {
+			driver.Stop("STM stopped answering (no valid SPI frames)")
+		}
 		select {
 		case sg := <-sig:
 			driver.Stop("signal " + sg.String())
@@ -209,6 +226,12 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 			}
 		}
 	}
+}
+
+// stmFresh は STM から 100 ms 以内に正しいフレームが届いているか。
+func stmFresh() bool {
+	at := state.SPIRxValidAt.Load()
+	return at != 0 && time.Since(time.Unix(0, at)) < 100*time.Millisecond
 }
 
 // finishTrajPoC は止めて、結果を出して、プロセスを終える。どの終わり方でもここを通る。
