@@ -124,9 +124,12 @@ journalctl -u ssl-racoon.service -f      # 起動ログを確認（Ctrl+C で抜
 - `threshold.json` と `camera/` は Pi2 と同じ `/root` を使うので、しきい値はそのまま引き継がれます。
 - 追加設定 `ssl-racoon.service.d/wait-6ghz.conf`（Wi-Fi の 6 GHz 切替を待ってから起動する）は
   別ファイルなので、上の差し替えでは消えません。写しは [`scripts/ssl-racoon.service.d/`](scripts/ssl-racoon.service.d/) にあります。
+  待ち合わせ先の `wifi-prefer-6ghz.service` は機体上にだけあり、中身は取得していません。機体に残ったままなので**載せ替えには不要**です
+  （要るのは新しい SD カードで機体を一から作るときです）。
 - **Pi2 に戻す**: `cp /root/ssl-racoon.service.pi2.bak /etc/systemd/system/ssl-racoon.service && systemctl daemon-reload && systemctl restart ssl-racoon.service`。
   Pi2 のバイナリ（`/root/racoon-pi2-rock5a`）は消していないので、そのまま起動します。
-- Pi 4B の機体の起動設定はまだ取得していません（バイナリ名は `racoon-pi2-pi4` のはず）。
+- Pi 4B の機体の起動設定はまだ取得していません（バイナリ名は `racoon-pi2-pi4` のはず）。ローカル制御は Rock5A の世代から
+  始めるので、旧世代を Pi3 に載せ替えると決まったときに取得します。
 
 ## カメラ
 
