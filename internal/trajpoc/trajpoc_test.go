@@ -292,6 +292,33 @@ func TestVelocityLeadRemovesOutwardDrift(t *testing.T) {
 	}
 }
 
+func TestNearGoalSettlesAndStops(t *testing.T) {
+	gen := DefaultGenConfig()
+	gen.Size, gen.Speed = 0.3, 0.2
+	rel, _ := Generate(gen)
+	cfg := DefaultConfig()
+	cfg.Method, cfg.Lead, cfg.NearGoal.Enabled = MethodFFPVelLead, 0.085, true
+	r := newSim(localization.Pose2{X: 0.3, Y: 0.2, Theta: 1.0})
+	d, err := NewDriver(rel, cfg, r.vision, r.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(t, r, d, 30)
+	if st, reason := d.Status(); st != Done {
+		t.Fatalf("ended in %s: %s", st, reason)
+	}
+	met := ComputeMetrics(d.Samples(), d.Reference().Knots())
+	t.Logf("near-goal: final %.1f mm %.2f deg, settle swing ±%.2f deg, settle cmd max %.0f mm/s", met.FinalPos, met.FinalHead, met.SettleHeadSwing, met.SettleCmdMax)
+	if met.FinalPos > cfg.NearGoal.Deadband*cfg.NearGoal.ExitFactor*1000 {
+		t.Errorf("must settle within the deadband: final %.1f mm", met.FinalPos)
+	}
+	smp := d.Samples()
+	last := smp[len(smp)-1]
+	if !last.NearGoal || last.CmdWorld.X != 0 || last.CmdWorld.Y != 0 || last.CmdOmega != 0 {
+		t.Errorf("once inside the deadband the command must be exactly zero: %+v", last)
+	}
+}
+
 func TestDriverAbortsOnVisionLoss(t *testing.T) {
 	rel, _ := Generate(DefaultGenConfig())
 	r := newSim(localization.Pose2{})

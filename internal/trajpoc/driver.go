@@ -42,6 +42,7 @@ type Sample struct {
 	CmdOmega float64
 	CmdBody  localization.Vec2
 	Held     bool // vision が古くて 0 を出した周期
+	NearGoal bool // 止まり際の √ブレーキ則で指令した周期
 }
 
 // Driver は link.VelocityOverride を満たし、SPI の周期 (125 Hz) ごとに速度を作る。
@@ -61,6 +62,7 @@ type Driver struct {
 
 	prevVel   localization.Vec2
 	prevOmega float64
+	ngStopped bool // 止まり際の不感帯で止めているか
 	prevTick  localization.Stamp
 	samples   []Sample
 }
@@ -192,6 +194,12 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	}
 
 	vel, omega, bodyTheta := command(d.cfg, d.ref, t, pose, age, d.prevVel, d.prevOmega)
+	if t > d.ref.End() {
+		if v, w, st, ok := nearGoal(d.cfg.NearGoal, d.ref.At(t), pose, d.ngStopped); ok {
+			vel, omega, d.ngStopped, bodyTheta = v, w, st, pose.Theta
+			s.NearGoal = true
+		}
+	}
 	vel, omega = limit(d.cfg, vel, omega, d.prevVel, d.prevOmega, dt)
 	d.prevVel, d.prevOmega = vel, omega
 	body := localization.RotateInv(bodyTheta, vel)

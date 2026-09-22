@@ -39,6 +39,7 @@ var trajPoc struct {
 	fence    float64
 	visionID int
 	csvDir   string
+	nearGoal bool
 }
 
 // PoC で許す上限。フラグの打ち間違いで暴走させないための天井。
@@ -59,6 +60,7 @@ func registerTrajPocFlags() {
 	flag.Float64Var(&trajPoc.fence, "trajfence", d.Fence, "軌道が収まるべき開始位置からの半径 [m]")
 	flag.IntVar(&trajPoc.visionID, "trajvisionid", -1, "SSL-Vision 上の自機 ID (カバーの模様)。-1 なら DIP スイッチの ID")
 	flag.StringVar(&trajPoc.csvDir, "trajcsv", ".", "記録 CSV の出力先ディレクトリ。空なら書かない")
+	flag.BoolVar(&trajPoc.nearGoal, "trajneargoal", false, "軌道が終わった後の寄せ方を √ブレーキ則 + 不感帯にする (RAVEN の near-goal brake と同じ考え)")
 }
 
 func trajPocConfig() (trajpoc.Config, error) {
@@ -75,6 +77,7 @@ func trajPocConfig() (trajpoc.Config, error) {
 	}
 	cfg.Kp, cfg.Kth, cfg.Lead = trajPoc.kp, trajPoc.kth, trajPoc.leadMs/1000
 	cfg.MaxSpeed, cfg.Fence = trajPoc.maxSpeed, trajPoc.fence
+	cfg.NearGoal.Enabled = trajPoc.nearGoal
 	return cfg, nil
 }
 

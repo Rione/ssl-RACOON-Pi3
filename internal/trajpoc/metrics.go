@@ -25,6 +25,8 @@ type Metrics struct {
 	FinalPos, FinalHead    float64 // Settle の最後の誤差 (到着の精度)
 	CmdAccelRMS            float64 // 指令の変化の激しさ [m/s^2]
 	AgeMedianMs            float64 // vision の古さの中央値
+	SettleHeadSwing        float64 // 軌道が終わった後の向きの誤差の振れ幅の半分 [deg] (振動の大きさ)
+	SettleCmdMax           float64 // 軌道が終わった後の並進の指令の最大 [mm/s] (静止摩擦で機体を回す小さな補正)
 }
 
 // minMovingSpeed より遅い区間は進行方向が定まらないので along/cross に入れない。
@@ -38,6 +40,20 @@ func ComputeMetrics(samples []Sample, path []Knot) Metrics {
 	var alongN, accN int
 	var lags, ages []float64
 	seen := map[localization.Stamp]bool{}
+	settleMin, settleMax := math.Inf(1), math.Inf(-1)
+	for _, s := range samples {
+		if s.Held || s.T <= 0 || s.Ref.Phase != After {
+			continue
+		}
+		m.SettleCmdMax = math.Max(m.SettleCmdMax, math.Hypot(s.CmdWorld.X, s.CmdWorld.Y)*1000)
+		if s.TV > 0 && s.Ref.Phase == After {
+			h := localization.AngleDiff(s.Pose.Theta, s.Ref.Theta) * 180 / math.Pi
+			settleMin, settleMax = math.Min(settleMin, h), math.Max(settleMax, h)
+		}
+	}
+	if settleMax >= settleMin {
+		m.SettleHeadSwing = (settleMax - settleMin) / 2
+	}
 	for i, s := range samples {
 		if s.Held {
 			m.Held++
@@ -117,6 +133,8 @@ func (m Metrics) Format(cfg Config, state State, reason string) string {
 	fmt.Fprintf(&b, "heading error      RMS %6.2f deg  max %6.2f deg\n", m.HeadRMS, m.HeadMax)
 	fmt.Fprintf(&b, "final (arrival)    %6.1f mm  %6.2f deg\n", m.FinalPos, m.FinalHead)
 	fmt.Fprintf(&b, "command accel RMS  %6.2f m/s^2  (how jerky the command was)\n", m.CmdAccelRMS)
+	fmt.Fprintf(&b, "after the end      heading swing ±%.2f deg, max translation command %.0f mm/s  (near-goal=%v)\n",
+		m.SettleHeadSwing, m.SettleCmdMax, cfg.NearGoal.Enabled)
 	return b.String()
 }
 

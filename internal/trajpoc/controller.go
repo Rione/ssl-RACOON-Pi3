@@ -57,6 +57,31 @@ type Config struct {
 
 	StartDelay float64 // 走り出しの猶予 [s] (軌道の t=0 をいつにするか)
 	Settle     float64 // 軌道の末尾の後、位置保持を続けて到着を測る秒 [s]
+
+	// NearGoal は軌道が終わった後の寄せ方を √ブレーキ則 + 不感帯に替える (RAVEN の near-goal brake と同じ考え)。
+	// 位置の P のままだと、数 mm の誤差では指令が小さすぎて静止摩擦に負け、寄せきれない上に、
+	// 小さな並進の指令で機体が回されて向きが振動する (traj-poc-log §5-13)。
+	NearGoal NearGoalConfig
+}
+
+// NearGoalConfig は止まり際の寄せ方。距離は m、角度は rad。
+type NearGoalConfig struct {
+	Enabled     bool
+	Radius      float64 // これより近ければ √ブレーキ則 [m]
+	Decel       float64 // √ブレーキ則の減速度 [m/s^2]
+	MaxSpeed    float64 // √ブレーキ則の速度の上限 [m/s]
+	Deadband    float64 // これより近ければ止める [m]
+	HeadDecel   float64 // 向きの √ブレーキ則の角減速度 [rad/s^2]
+	HeadMaxRate float64 // 向きの角速度の上限 [rad/s]
+	HeadBand    float64 // これより向きが近ければ回さない [rad]
+	ExitFactor  float64 // 止めた後、不感帯のこの倍を超えたら動き直す (ヒステリシス)
+	Delay       float64 // 指令が効くまでの遅れ [s]。止まれる速度をこの分だけ控える (PoC の実測で約 90 ms)
+}
+
+// DefaultNearGoal は RAVEN の near_goal_brake の値 (control.yaml) に合わせたもの。速度の上限だけ PoC の上限に合わせて低い。
+func DefaultNearGoal() NearGoalConfig {
+	return NearGoalConfig{Radius: 0.1, Decel: 2.5, MaxSpeed: 0.3, Deadband: 0.004,
+		HeadDecel: 15, HeadMaxRate: 2.0, HeadBand: 0.03, ExitFactor: 2.5, Delay: 0.09}
 }
 
 // DefaultConfig は最初の実機試験用の保守的な設定。
@@ -68,6 +93,7 @@ func DefaultConfig() Config {
 		Fence: 1.0, FenceMargin: 0.2,
 		VisionHoldAge: 0.25, VisionAbortAge: 1.0,
 		StartDelay: 0.3, Settle: 0.8,
+		NearGoal: DefaultNearGoal(),
 	}
 }
 
@@ -120,6 +146,45 @@ func command(c Config, ref *Reference, t float64, pose localization.Pose2, age f
 	}
 	omega = target.YawRate + c.Kth*localization.AngleDiff(target.Theta, th)
 	return vel, omega, th
+}
+
+// nearGoal は軌道が終わった後の寄せ方。ゴールまで Radius 以内なら、遅れ Td を入れた止まれる速度
+// v = a·(√(Td² + 2(d−不感帯)/a) − Td) でゴールへ向かい、不感帯に入ったら止める。
+// (素の √ブレーキ則 √(2a(d−不感帯)) は「今すぐ減速し始められる」前提で、90 ms の遅れの間に
+// 不感帯を越えて行ったり来たりする。遅れの間は今の速度で進むとして、その分だけ控える。)
+// stopped は前回止めていたか (ヒステリシス用)。
+// 使わないとき (範囲外・無効) は ok=false。
+func nearGoal(c NearGoalConfig, goal RefSample, pose localization.Pose2, stopped bool) (vel localization.Vec2, omega float64, nowStopped, ok bool) {
+	dx, dy := goal.Pos.X-pose.X, goal.Pos.Y-pose.Y
+	d := math.Hypot(dx, dy)
+	he := localization.AngleDiff(goal.Theta, pose.Theta)
+	if !c.Enabled || d > c.Radius {
+		return localization.Vec2{}, 0, false, false
+	}
+	band, hband := c.Deadband, c.HeadBand
+	if stopped {
+		band, hband = band*c.ExitFactor, hband*c.ExitFactor
+	}
+	if d < band && math.Abs(he) < hband {
+		return localization.Vec2{}, 0, true, true
+	}
+	if d >= band {
+		v := math.Min(c.MaxSpeed, stoppableSpeed(d-c.Deadband, c.Decel, c.Delay))
+		vel = localization.Vec2{X: dx / d * v, Y: dy / d * v}
+	}
+	if math.Abs(he) >= hband {
+		omega = math.Copysign(math.Min(c.HeadMaxRate, stoppableSpeed(math.Abs(he)-c.HeadBand, c.HeadDecel, c.Delay)), he)
+	}
+	return vel, omega, false, true
+}
+
+// stoppableSpeed は、遅れ td の間は今の速度で進み、その後に減速度 a で止まるとき、
+// 残り s でちょうど止まれる速度 (v·td + v²/(2a) = s の正の解)。
+func stoppableSpeed(s, a, td float64) float64 {
+	if s <= 0 {
+		return 0
+	}
+	return a * (math.Sqrt(td*td+2*s/a) - td)
 }
 
 // limit は速度・角速度の上限と、指令の変化の上限を掛ける。dt は前回からの秒。
