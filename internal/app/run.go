@@ -83,7 +83,10 @@ func Run() {
 	state.Version = upgrade.GetVersion()
 	log.Printf("RACOON-Pi3 version: %s", state.Version)
 
-	go upgrade.ConfirmAndSelfUpdate()
+	// PoC の最中に自己更新が走ると、上書き後に os.Exit で即死し、STM は最後の速度で走り続ける。
+	if !trajPoc.enabled {
+		go upgrade.ConfirmAndSelfUpdate()
+	}
 
 	initBoard()
 	defer cleanupBoard()

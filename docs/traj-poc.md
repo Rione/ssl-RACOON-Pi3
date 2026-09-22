@@ -64,6 +64,7 @@ vision の遅延 30 ms) で 8 の字 (0.45 m/s) を走らせた結果を出す�
   vision が 250 ms 途切れたら 0 で待ち、1 s 途切れたら打ち切り / 開始位置から 枠 + 0.2 m 出たら打ち切り。
   どれでも 0 を 150 ms 送ってから非常停止のフレームへ戻して終了する
 - SIGPIPE は無視する (Go は既定で、標準出力の相手が消えると即死する。即死すると上のとおり走り続ける)
+- PoC の間は自己更新をしない (上書き後に os.Exit で即死するため)
 - 走る前に軌道を検査する: 原点から始まること、枠 (`-trajfence`、既定 1.0 m) に収まること、
   速度が `-trajmaxspeed` (既定 0.5 m/s) を超えないこと。フラグの天井は 2.0 m/s・3.0 m
 - 指令は速度・角速度 (既定 2.0 rad/s)・変化 (既定 2.0 m/s²) を制限する
@@ -80,14 +81,17 @@ Wi-Fi が切れた場合、SSH の切断がロボット側に伝わるまで時�
 
 ```bash
 export ROBOT=172.15.0.34
-scripts/trajpoc.sh deploy        # /root/trajpoc/racoon-pi3 に置く (Pi2 の /root には触れない)
+scripts/trajpoc.sh deploy        # /root/trajpoc/racoon-pi3 に置く (Pi2 の /root には触れない。scp は使わない)
 
 # 1 回走らせる。traj_gen の引数 -- racoon-pi3 の引数
 scripts/trajpoc.sh run -shape line -size 0.4 -speed 0.3 -- -trajmethod ffp -trajvisionid 12
 
-scripts/trajpoc.sh fetch         # CSV を trajpoc-results/ へ
+scripts/trajpoc.sh fetch         # CSV とログを trajpoc-results/ へ
 scripts/trajpoc.sh restore       # 終わったら Pi2 のサービスを起動し直す
 ```
+
+ロボット側の出力は `/root/trajpoc/trajpoc-<時刻>.log` にも残る。Ctrl+C で止めると止まった理由が
+手元に届かないので、そのときはこちらを見る。
 
 `run` は Pi2 のサービス (`ssl-racoon.service`) を止めてから走らせる (SPI を取り合わないため)。
 終わったら `restore` で戻すこと。ロボットを再起動しても Pi2 に戻る。

@@ -59,8 +59,12 @@ func isDevVersion(v string) bool {
 	case "", "(devel)", "unknown":
 		return true
 	}
-	// go build 由来の pseudo-version (例: v1.0.1-0.20260623143125-eab18fdc67ec)
-	return strings.Contains(normalizeVersion(v), "-0.")
+	n := normalizeVersion(v)
+	// go build 由来の pseudo-version。タグより後のコミット (例: v1.0.1-0.20260623143125-eab18fdc67ec)、
+	// タグが 1 つも無いリポジトリ (例: v0.0.0-20260922095038-df5ecf39d720)、
+	// 未コミットの変更入り (+dirty) のどれも開発版として扱い、自己更新しない。
+	// 開発版がリリースで上書きされると、手で載せて試している最中に入れ替わってしまう。
+	return strings.Contains(n, "-0.") || strings.HasPrefix(n, "0.0.0-") || strings.HasSuffix(n, "+dirty")
 }
 
 func parseCurrentVersion(v string) (semver.Version, bool) {

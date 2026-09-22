@@ -26,8 +26,9 @@ shift || true
 case "$cmd" in
 deploy)
     (cd "$HERE" && GOOS=linux GOARCH=arm64 go build -tags rock5a -o /tmp/racoon-pi3-trajpoc ./cmd/racoon-pi3)
-    "${SSH[@]}" "mkdir -p '$REMOTE_DIR'"
-    scp -q /tmp/racoon-pi3-trajpoc "root@${ROBOT}:${REMOTE_DIR}/racoon-pi3"
+    # ロボットに sftp-server が無いので scp は使わず、SSH の標準入力で流し込む。
+    "${SSH[@]}" "mkdir -p '$REMOTE_DIR' && cat > '$REMOTE_DIR/racoon-pi3.new' && chmod +x '$REMOTE_DIR/racoon-pi3.new' && mv '$REMOTE_DIR/racoon-pi3.new' '$REMOTE_DIR/racoon-pi3'" \
+        < /tmp/racoon-pi3-trajpoc
     echo "deployed to ${ROBOT}:${REMOTE_DIR}/racoon-pi3 ($(cd "$HERE" && git rev-parse --short HEAD))"
     ;;
 run)
@@ -42,15 +43,22 @@ run)
     # Pi2 と SPI を取り合わないよう止める (戻すのは restore)。
     "${SSH[@]}" "systemctl stop ssl-racoon.service"
     echo ">>> running on ${ROBOT}. Ctrl+C to stop."
-    # 軌道を流したあとも標準入力を開けたままにする (閉じる = 止める合図)。
-    # プロセス置換にしておくと、ロボット側が終われば sleep を待たずに戻る。
-    "${SSH[@]}" "cd '$REMOTE_DIR' && ./racoon-pi3 -trajpoc -team '$TEAM' -visionaddr '$VISION_ADDR' ${iface[*]} ${poc[*]}" \
-        < <(cat "$traj"; sleep 3600)
-    rm -f "$traj"
+    # 軌道を流したあとも ssh の標準入力を開けたままにする (閉じる = 止める合図)。
+    # 流し手は名前付きパイプの向こうで sleep し、標準出力 (= ssh の標準入力) だけを握る。
+    # 標準エラーまで握ると、ロボット側が終わってもこのスクリプトの出力を読む側が閉じない。
+    fifo="$(mktemp -u)"
+    mkfifo "$fifo"
+    { cat "$traj"; exec sleep 3600; } 2>/dev/null > "$fifo" &
+    feeder=$!
+    trap 'kill "$feeder" 2>/dev/null || true; rm -f "$fifo" "$traj"' EXIT
+    # ロボット上にもログを残す。ssh が切れると止まった理由が手元に届かないため
+    # (tee -p は出力先のパイプが壊れてもファイルへの書き込みを続ける)。
+    "${SSH[@]}" "cd '$REMOTE_DIR' && ./racoon-pi3 -trajpoc -team '$TEAM' -visionaddr '$VISION_ADDR' ${iface[*]} ${poc[*]} 2>&1 | tee -p trajpoc-\$(date +%Y%m%d-%H%M%S).log" \
+        < "$fifo" || true
     ;;
 fetch)
     mkdir -p "$HERE/trajpoc-results"
-    scp -q "root@${ROBOT}:${REMOTE_DIR}/trajpoc-*.csv" "$HERE/trajpoc-results/"
+    "${SSH[@]}" "cd '$REMOTE_DIR' && tar -cf - trajpoc-*.csv trajpoc-*.log 2>/dev/null" | tar -xf - -C "$HERE/trajpoc-results"
     ls -1t "$HERE/trajpoc-results" | head
     ;;
 restore)
