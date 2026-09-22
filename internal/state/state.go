@@ -96,6 +96,10 @@ var (
 
 var IsControlByRobotMode bool
 
+// TrajPoCActive は時刻つき軌道追従の PoC が走っている間 true。
+// その間は PC からの DATA (速度・キック) を反映しない (docs/traj-poc.md)。
+var TrajPoCActive atomic.Bool
+
 type SendPayload struct {
 	VelX          int16
 	VelY          int16

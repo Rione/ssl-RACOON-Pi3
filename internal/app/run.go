@@ -117,6 +117,10 @@ func Run() {
 		go wheelgraph.RunServer(done)
 	}
 
+	if trajPoc.enabled {
+		go runTrajPoC(done, myID)
+	}
+
 	select {}
 }
 
@@ -135,6 +139,9 @@ func parseFlags() {
 	flag.StringVar(&state.LocVisionAddr, "visionaddr", "", "SSL-Visionのマルチキャスト (既定: 224.5.23.2:10694)")
 	flag.StringVar(&state.LocVisionIface, "visioniface", "", "SSL-Vision受信に使うNIC名。空ならシステム既定")
 	flag.BoolVar(&state.LocIdent, "locident", false, "機体パラメータ同定の加振を実行する。ロボットが自走するので注意")
+
+	// 時刻つき軌道追従の PoC (docs/traj-poc.md)。
+	registerTrajPocFlags()
 	flag.Parse()
 
 	if state.DebugSerial {
@@ -220,6 +227,11 @@ func interfaceLinkUp(iface net.Interface) bool {
 }
 
 func setupSignalHandler() {
+	// PoC は自分で 0 を送ってから終える。ここで即座に os.Exit すると、
+	// STM は最後の速度で走り続ける (指令途絶のタイムアウトが無い)。
+	if trajPoc.enabled {
+		return
+	}
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	go func() {

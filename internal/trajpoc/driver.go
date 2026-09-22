@@ -1,0 +1,208 @@
+package trajpoc
+
+import (
+	"fmt"
+	"math"
+	"sync"
+
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
+)
+
+// VisionSource は自機の最新の vision 姿勢と、その撮影時刻を返す。
+// 撮影時刻は Clock と同じ時間軸 (Rock5A の単調時計) で渡すこと。
+type VisionSource func() (pose localization.Pose2, capture localization.Stamp, ok bool)
+
+// Clock は現在の単調時刻を返す。
+type Clock func() localization.Stamp
+
+// State は Driver の状態。
+type State uint8
+
+const (
+	Idle    State = iota // Arm 前。0 を出す
+	Running              // 追従中
+	Done                 // 軌道 + Settle が終わった。0 を出す
+	Aborted              // 安全のために打ち切った。0 を出す
+	Stopped              // 外から止めた (Ctrl+C・SSH 切断など)。0 を出す
+)
+
+func (s State) String() string {
+	return [...]string{"idle", "running", "done", "aborted", "stopped"}[s]
+}
+
+// Sample は 1 周期の記録。T は現在の軌道時刻、TV は vision の撮影時刻での軌道時刻。
+// 誤差は「撮影した瞬間の参照」と比べる (vision の遅れを追従の誤差に混ぜないため)。
+type Sample struct {
+	T, TV    float64
+	Age      float64
+	Capture  localization.Stamp
+	Pose     localization.Pose2
+	Ref      RefSample // TV での参照
+	CmdWorld localization.Vec2
+	CmdOmega float64
+	CmdBody  localization.Vec2
+	Held     bool // vision が古くて 0 を出した周期
+}
+
+// Driver は link.VelocityOverride を満たし、SPI の周期 (125 Hz) ごとに速度を作る。
+// link パッケージはビルドタグ付きなので import せず、同じ形のメソッドだけ持つ。
+type Driver struct {
+	mu     sync.Mutex
+	cfg    Config
+	rel    []Knot
+	vision VisionSource
+	now    Clock
+
+	state  State
+	reason string
+	ref    *Reference
+	start  localization.Pose2
+	t0     localization.Stamp
+
+	prevVel   localization.Vec2
+	prevOmega float64
+	prevTick  localization.Stamp
+	samples   []Sample
+}
+
+// NewDriver は相対軌道と設定を検証して Driver を作る。まだ動かない (Arm で動く)。
+func NewDriver(rel []Knot, cfg Config, vision VisionSource, now Clock) (*Driver, error) {
+	if err := cfg.Validate(rel); err != nil {
+		return nil, err
+	}
+	if _, err := NewReference(rel, cfg.Interp); err != nil {
+		return nil, err
+	}
+	n := int(math.Ceil((MeasureBounds(rel).Duration+cfg.Settle+cfg.StartDelay+1)*125)) + 64
+	return &Driver{cfg: cfg, rel: append([]Knot(nil), rel...), vision: vision, now: now,
+		samples: make([]Sample, 0, n)}, nil
+}
+
+// Arm は現在の vision 姿勢に軌道を貼り付け、StartDelay 後を軌道の t=0 にして走らせる。
+func (d *Driver) Arm() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.state != Idle {
+		return fmt.Errorf("cannot arm in state %s", d.state)
+	}
+	pose, capture, ok := d.vision()
+	now := d.now()
+	if !ok {
+		return fmt.Errorf("no vision of the robot")
+	}
+	if age := (now - capture).Seconds(); age > d.cfg.VisionHoldAge {
+		return fmt.Errorf("vision is stale (%.0f ms)", age*1000)
+	}
+	// 軌道の先頭の向きは相対 0。ロボットの今の向きを基準にする。
+	ref, err := NewReference(ToWorld(d.rel, pose), d.cfg.Interp)
+	if err != nil {
+		return err
+	}
+	d.ref, d.start = ref, pose
+	d.t0 = now + localization.Stamp(d.cfg.StartDelay*1e9)
+	d.prevTick = now
+	d.state = Running
+	return nil
+}
+
+// Stop は外から止める (Ctrl+C・SSH 切断など)。以後は 0 を出す。
+func (d *Driver) Stop(reason string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.state == Running || d.state == Idle {
+		d.state, d.reason = Stopped, reason
+	}
+}
+
+// Status は状態と、止まった理由を返す。
+func (d *Driver) Status() (State, string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.state, d.reason
+}
+
+// Finished は Running でなくなったか (Idle は含まない)。
+func (d *Driver) Finished() bool {
+	s, _ := d.Status()
+	return s == Done || s == Aborted || s == Stopped
+}
+
+// Start は軌道を貼り付けた開始姿勢を返す。
+func (d *Driver) Start() localization.Pose2 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.start
+}
+
+// Reference は貼り付け後の参照 (Arm 前は nil)。
+func (d *Driver) Reference() *Reference {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.ref
+}
+
+// Samples は記録のコピーを返す。
+func (d *Driver) Samples() []Sample {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]Sample(nil), d.samples...)
+}
+
+func (d *Driver) abort(reason string) {
+	d.state, d.reason = Aborted, reason
+}
+
+// OverrideVelocity は link.VelocityOverride を満たす。ロボット系の
+// VelX, VelY [mm/s] と VelAng [mrad/s]。Running 以外は 0 を出し続ける
+// (指令を返さなくなると通常経路へ戻り、直前の速度が残っていると走り去るため)。
+func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.state != Running {
+		return 0, 0, 0, true
+	}
+	now := d.now()
+	dt := math.Min((now - d.prevTick).Seconds(), 0.05)
+	d.prevTick = now
+	t := (now - d.t0).Seconds()
+
+	pose, capture, vok := d.vision()
+	age := (now - capture).Seconds()
+	if !vok || age > d.cfg.VisionAbortAge {
+		d.abort(fmt.Sprintf("vision lost (%.0f ms)", age*1000))
+		return 0, 0, 0, true
+	}
+	if math.Hypot(pose.X-d.start.X, pose.Y-d.start.Y) > d.cfg.Fence+d.cfg.FenceMargin {
+		d.abort(fmt.Sprintf("left the fence (%.2f m from start)", math.Hypot(pose.X-d.start.X, pose.Y-d.start.Y)))
+		return 0, 0, 0, true
+	}
+	if t > d.ref.End()+d.cfg.Settle {
+		d.state, d.reason = Done, "trajectory finished"
+		return 0, 0, 0, true
+	}
+
+	s := Sample{T: t, TV: (capture - d.t0).Seconds(), Age: age, Capture: capture, Pose: pose}
+	s.Ref = d.ref.At(s.TV)
+	if age > d.cfg.VisionHoldAge {
+		// 古い位置で閉ループを回すと振動する。止まって新しい vision を待つ。
+		s.Held = true
+		d.prevVel, d.prevOmega = localization.Vec2{}, 0
+		d.samples = append(d.samples, s)
+		return 0, 0, 0, true
+	}
+
+	vel, omega, bodyTheta := command(d.cfg, d.ref, t, pose, age, d.prevVel, d.prevOmega)
+	vel, omega = limit(d.cfg, vel, omega, d.prevVel, d.prevOmega, dt)
+	d.prevVel, d.prevOmega = vel, omega
+	body := localization.RotateInv(bodyTheta, vel)
+	s.CmdWorld, s.CmdOmega, s.CmdBody = vel, omega, body
+	d.samples = append(d.samples, s)
+	return toInt16(body.X * 1000), toInt16(body.Y * 1000), toInt16(omega * 1000), true
+}
+
+func toInt16(v float64) int16 {
+	if math.IsNaN(v) {
+		return 0
+	}
+	return int16(math.Max(math.MinInt16, math.Min(math.MaxInt16, math.Round(v))))
+}
