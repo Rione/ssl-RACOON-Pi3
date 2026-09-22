@@ -7,10 +7,14 @@ import (
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
-// PoCGeometry はテスト機の車輪の並び・符号。寸法は既定 (未確定) のままで、
-// 符号だけ実機の記録から決まった -1 にしてある (traj-poc-log §5-17)。
+// PoCGeometry はテスト機 (racoon-56011) の機体パラメータ。config/geometry-racoon-56011.json と同じ値
+// (traj-poc-log §5-20: 4 輪とも符号 -1、取付角・半径は vision の速度を基準にした同定、腕の長さは
+// vision を抜いたリプレイで向きのずれが最小になる値)。
 func PoCGeometry() localization.GeometryConfig {
 	g := localization.DefaultGeometry()
+	g.WheelAnglesDeg = [localization.NumWheels]float64{55.4, 136.1, -136.3, -57.4}
+	g.WheelRadiusM = [localization.NumWheels]float64{0.02933, 0.02803, 0.02818, 0.02805}
+	g.MomentArmM = 0.074
 	g.WheelSigns = [localization.NumWheels]float64{-1, -1, -1, -1}
 	return g
 }
