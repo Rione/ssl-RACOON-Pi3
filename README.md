@@ -62,6 +62,38 @@ Rock5A 上で `go build` した場合は `GOOS`/`GOARCH` は不要です。Mac �
 
 タグ未指定の `go build .` は不可です。
 
+## 実機で試す（手で載せる）
+
+今ロボットで動いているのは Pi2（`ssl-racoon.service`）で、Pi2 は Pi2 のリリースしか取りに行きません。
+そのため **Pi3 は最初の 1 回を手で載せます**。どのブランチのコードでも、ビルドして載せれば確かめられます
+（master やリリースを経由する必要はありません）。開発ビルドは版番号が開発版扱いになり、**自己更新しません**。
+
+Pi2 の置き場所を上書きせず、**別のディレクトリ**に置きます。戻すときはサービスを起動し直すだけで Pi2 に戻れます。
+
+```bash
+# 開発 PC で（確かめたいブランチのまま）
+GOOS=linux GOARCH=arm64 go build -tags rock5a -o racoon-pi3 ./cmd/racoon-pi3
+ssh root@<robot> 'mkdir -p /root/racoon-pi3'
+scp racoon-pi3 root@<robot>:/root/racoon-pi3/
+scp -r camera root@<robot>:/root/racoon-pi3/   # 搭載カメラを使う場合
+```
+
+```bash
+# ロボット上で
+systemctl cat ssl-racoon.service                     # ExecStart / WorkingDirectory で Pi2 の置き場所を確認
+cp <Pi2 の置き場所>/threshold.json /root/racoon-pi3/  # ボール色の HSV しきい値を引き継ぐ
+sudo systemctl stop ssl-racoon.service                # Pi2 を止める
+cd /root/racoon-pi3 && sudo ./racoon-pi3 -dryrun      # まずは車輪に指令を送らずに起動
+```
+
+- **必ず置き場所へ `cd` してから起動してください。** `threshold.json` は作業ディレクトリから読み
+  （無ければ既定値で新しく作る）、カメラの Python（`camera/`）はバイナリと同じディレクトリから起動します。
+- `-dryrun` は SPI へ速度・ドリブル・キックを送りません。受信・通信・ログを、ロボットを動かさずに確かめられます。
+  問題なければ `-dryrun` を外して走らせます。
+- **Pi2 に戻す**: Ctrl+C で止めて `sudo systemctl start ssl-racoon.service`。Pi2 の置き場所には触れていないので元どおりです。
+  ロボットを再起動した場合も Pi2 が起動します。
+- 自己位置推定の計測（`-loclog` など）は [`docs/localization-p1-runbook.md`](docs/localization-p1-runbook.md) を参照してください。
+
 ## カメラ
 
 カメラ処理は Python の `camera/` パッケージが担当します。通常運転では軽量な HSV + 輪郭検出のみを行い、検出結果を UDP（ポート 31133）で Go 本体へ送信します。Go 本体は起動時に `python3 -m camera` を実行し、ビルドタグに応じて環境変数 `RACOON_BOARD`（`pi4` / `rock5a`）を渡します。
@@ -151,7 +183,19 @@ curl http://<robot>:9191/calibballcolor
 
 ## 自動アップデート
 
-GitHub Release からボード別バイナリを取得します。Public リポジトリのため `.env` や `GITHUB_TOKEN` は必須ではありません。`.env` がある場合は自動で読み込みます（API レート制限を避けたい場合に `GITHUB_TOKEN` を設定できます）。
+GitHub Release からボード別バイナリを取得します。
+
+仕組み:
+
+- **起動時に 1 回だけ**確認します（`internal/app/run.go` → `internal/upgrade`）。取得先はこのリポジトリ（`Rione/ssl-RACOON-Pi3`）のリリースです。
+- 新しい版があれば**実行中のバイナリ自身を上書き**し、リリースに同梱の `camera/` もバイナリの隣へ展開して、
+  **プロセスを終了**します。再起動は systemd に任せています。
+- 開発ビルド（タグ無しでビルドしたもの）は確認そのものをしません。
+- **ロボットの起動時にこのプログラムを立ち上げる設定（`ssl-racoon.service`）は、このリポジトリには無く、機体側にあります。**
+  終了後に立ち上がり直すか（`Restart=`）、Wi-Fi がつながるのを待ってから起動するか（`After=network-online.target` など）は
+  そちらの設定次第です。確認は `systemctl cat ssl-racoon.service`。起動時にネットワークが無いと、その回の確認は失敗し、次の起動まで再試行しません。
+
+Public リポジトリのため `.env` や `GITHUB_TOKEN` は必須ではありません。`.env` がある場合は自動で読み込みます（API レート制限を避けたい場合に `GITHUB_TOKEN` を設定できます）。
 
 | ビルド | Release アセット名（例） | フィルタ |
 |--------|-------------------------|----------|
