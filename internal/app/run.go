@@ -103,8 +103,13 @@ func Run() {
 
 	done := make(chan struct{})
 
-	go receive.RunClient(done, myID, ip)
-	go mw.RunServer(done, myID)
+	// PoC は RAVEN を使わない。接続処理 (DISCOVER / OFFER / OK_PC) と状態の送信を起動しない。
+	// 起動すると、同じ DIP の ID を持つ別の機体と RAVEN の上で取り合いになる
+	// (RAVEN は ID ごとに 1 台しか持たず、1.5 s 以内の DISCOVER は送信元が違っても捨てる)。
+	if !trajPoc.enabled {
+		go receive.RunClient(done, myID, ip)
+		go mw.RunServer(done, myID)
+	}
 	go runLink(done, myID)
 	go kickCheck(done)
 	go runGPIO(done)
