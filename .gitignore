@@ -12,3 +12,7 @@ __pycache__/
 *.pyc
 /loc_ident
 *.mcap
+
+# 開発時のビルド成果物 (誤コミット防止)
+/main
+/kick_test
