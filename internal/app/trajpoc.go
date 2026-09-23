@@ -174,7 +174,8 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 
 	// STM が応答しているか。受信が壊れていると車輪の値が 0 のまま更新されず、
 	// 車輪と vision の食い違いの検査も効かない (traj-poc-log §5-19)。
-	deadline = time.Now().Add(time.Second)
+	// フレームの形 (20/21 バイト) の自動判別に 1.2 s かかることがあるので、それより長く待つ。
+	deadline = time.Now().Add(4 * time.Second)
 	for !stmFresh() {
 		if time.Now().After(deadline) {
 			fail("no valid SPI frames from the STM (power / cable / battery?)")
