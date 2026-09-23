@@ -47,6 +47,8 @@ var speeds = []int{100_000, 500_000, 1_000_000, 2_000_000}
 func main() {
 	loopback := flag.Bool("loopback", false, "手順 0: MOSI(PIN_19) と MISO(PIN_21) を線で繋いだ状態で Pi 自身を試す")
 	led := flag.Bool("led", false, "手順 3: 指令受信のビットを立てて送り続ける (速度 0。メインボードの LED2 を見る)")
+	pattern := flag.Float64("pattern", 0, "手順 4c: N 秒間、STM 側から見分けられる決まった値を流し続ける")
+	patternSignal := flag.Bool("pattern-signal", false, "-pattern で status を非常停止 (0x01) ではなく指令受信 (0x20) にする。**車輪が回りうる**")
 	blink := flag.Float64("blink", 0, "手順 2: N 秒間、1 秒ごとに指令受信ビットを on/off して LED2 を意図的に点滅させる")
 	txsweep := flag.Bool("txsweep", false, "手順 5: 送信側を 0-7 ビットずらしながらドリブラを回し、どれで噛み合うかを見る")
 	align := flag.Int("align", 0, "手順 1c: N 回ぶん、毎フレームのビットずれ量を測って安定しているか見る")
@@ -67,6 +69,8 @@ func main() {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
 	switch {
+	case *pattern > 0:
+		runPattern(*frameSize, *pattern, *patternSignal, sig)
 	case *blink > 0:
 		runBlink(*frameSize, *blink, sig)
 	case *txsweep:
@@ -500,6 +504,115 @@ func runBlink(frameSize int, sec float64, sig chan os.Signal) {
 	fmt.Println("=== 判定 ===")
 	fmt.Println("  合図どおりに点滅した LED がある → 下りは届いている。原因はもっと後ろ。")
 	fmt.Println("  どの LED も変わらない → 下りが届いていない。MOSI (PIN_19) の配線か STM の受信側。")
+}
+
+// runPattern は「STM 側にデバッガや UART を繋いで見てもらう」ための決まった値を流す。
+//
+// 速度や位置に、偶然には出ない値を入れておく。相手は info の中身か rock_spi_rx_xfer を
+// 見るだけで、届いているか・化けているか・何も来ていないかを一目で判別できる。
+// relative_position_x だけは毎フレーム 1 ずつ増やすので、止まっていないことも分かる。
+//
+// status は既定で非常停止 (0x01) なので車輪は回らない。
+// -pattern-signal を付けると指令受信 (0x20) になり、**届いていれば車輪が回る**。
+func runPattern(frameSize int, sec float64, signal bool, sig chan os.Signal) {
+	port, conn, err := open(1_000_000, spi.Mode0)
+	if err != nil {
+		fail("SPI を開けない: %v", err)
+	}
+	defer port.Close()
+
+	status := byte(infoEmgStop)
+	if signal {
+		status = infoSignalReceived
+	}
+
+	// 下りの並び (SPI_PROTOCOL.md §4)。中身 18 バイトの添字はフレーム位置 - 1。
+	build := func(counter uint16) []byte {
+		p := make([]byte, 18)
+		put16 := func(i int, v int16) {
+			p[i] = byte(uint16(v) & 0xff)
+			p[i+1] = byte(uint16(v) >> 8)
+		}
+		put16(0, 1234)  // vel_x     = 1234 mm/s
+		put16(2, -5678) // vel_y     = -5678 mm/s
+		put16(4, 900)   // vel_angular = 900 mrad/s
+		p[6] = 0x5A     // dribble_power
+		p[7] = 0        // kicker straight (撃たない)
+		p[8] = 0        // kicker chip     (撃たない)
+		p[9] = byte(counter & 0xff)
+		p[10] = byte(counter >> 8) // relative_position_x = 毎フレーム +1
+		put16(11, 0x1234)          // relative_position_y
+		put16(13, 0x5678)          // relative_theta
+		p[15] = 0xC1               // camera.x
+		p[16] = 0xC2               // camera.y
+		p[17] = status
+		f := make([]byte, frameSize)
+		f[0] = header
+		copy(f[1:], p)
+		f[frameSize-1] = footer
+		return f
+	}
+
+	fmt.Printf("手順 4c: %.0f 秒間、決まった値を 125 Hz で流す\n\n", sec)
+	fmt.Println("  STM 側で見てほしいもの (info、または rock_spi_rx_xfer):")
+	fmt.Println("    vel_x               = 1234")
+	fmt.Println("    vel_y               = -5678")
+	fmt.Println("    vel_angular         = 900")
+	fmt.Println("    dribble_power       = 0x5A (90)")
+	fmt.Println("    relative_position_x = 毎フレーム 1 ずつ増える")
+	fmt.Println("    relative_position_y = 0x1234")
+	fmt.Println("    relative_theta      = 0x5678")
+	fmt.Println("    camera.x / camera.y = 0xC1 / 0xC2")
+	fmt.Printf("    status              = 0x%02X %s\n", status,
+		map[bool]string{false: "(非常停止。車輪は回らない)", true: "(指令受信。**届いていれば車輪が回る**)"}[signal])
+	fmt.Println()
+	fmt.Printf("  生のフレーム (21 バイト): %s\n", hexOf(build(0)))
+	fmt.Println()
+
+	defer func() {
+		st := txFrame(frameSize, 0, 0, 0, 0, infoEmgStop)
+		for i := 0; i < 20; i++ {
+			conn.Tx(st, make([]byte, frameSize))
+			time.Sleep(8 * time.Millisecond)
+		}
+		fmt.Println("止めた")
+	}()
+
+	deadline := time.Now().Add(time.Duration(sec * float64(time.Second)))
+	tick := time.NewTicker(8 * time.Millisecond)
+	defer tick.Stop()
+	var counter uint16
+	next := time.Now()
+	for time.Now().Before(deadline) {
+		select {
+		case <-sig:
+			fmt.Println("signal: 止めます")
+			return
+		case <-tick.C:
+		}
+		conn.Tx(build(counter), make([]byte, frameSize))
+		counter++
+		if time.Now().After(next) {
+			next = time.Now().Add(2 * time.Second)
+			fmt.Printf("  送信中: %d フレーム目 (relative_position_x = %d)\n", counter, counter-1)
+		}
+	}
+	fmt.Println()
+	fmt.Println("=== 相手の見え方と意味 ===")
+	fmt.Println("  上の値どおり        → 下りは届いている。原因は MOSI ではない")
+	fmt.Println("  全部 00 / 全部 FF   → MOSI に何も来ていない。線が死んでいる")
+	fmt.Println("  値は来るが化けている → 線は生きている。同期かモードの食い違い")
+}
+
+func hexOf(b []byte) string {
+	var sb strings.Builder
+	for i, x := range b {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+		fmt.Fprintf(&sb, "%02X", x)
+	}
+	return sb.String()
 }
 
 // ---- 手順 1-2: MISO の国勢調査 ---------------------------------------------
