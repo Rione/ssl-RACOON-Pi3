@@ -2,6 +2,8 @@
 
 package rock5a
 
+import "math"
+
 const DefaultHostname = "DietPi\n"
 
 const (
@@ -52,6 +54,43 @@ var (
 // ヨーの角速度は面内の回転なので、この付け替えでは変わらない (反時計回りが正。1 周で +2π を確認)。
 func bodyFromImuAccel(sensorX, sensorY float64) (forward, left float64) {
 	return sensorY, -sensorX
+}
+
+// batteryFilter は電圧の読みをならす。
+//
+// 実機で 2 つの困りごとがあった (docs/imu-requirements.md §9):
+//   - 起動直後、フレームの形を見分けている間 (最大 1.2 s) は電圧が 0 に見え、毎回ブザーが鳴る
+//   - 古いファームは 26 V 以上で値が一周し、1 フレームだけ 0.4 V などに化ける
+//
+// どちらも「1 フレームだけ大きく飛んだ値は信じない」で消せる。電池の電圧が 8 ms で 3 V 動くことはない。
+type batteryFilter struct {
+	volts   float64 // 採用している値 [V]
+	odd     int     // 続けて外れた回数
+	started bool
+}
+
+// batteryJumpV を超える変化は、続けて batteryJumpHold 回出るまで採用しない。
+const (
+	batteryJumpV    = 3.0
+	batteryJumpHold = 3
+)
+
+// update は新しい読みを入れて、採用する電圧を返す。
+func (f *batteryFilter) update(v float64) float64 {
+	if !f.started {
+		f.volts, f.started = v, true
+		return f.volts
+	}
+	if math.Abs(v-f.volts) <= batteryJumpV {
+		f.volts, f.odd = v, 0
+		return f.volts
+	}
+	f.odd++
+	if f.odd >= batteryJumpHold {
+		// 続けて飛んでいるなら本当に変わった (電池交換など)
+		f.volts, f.odd = v, 0
+	}
+	return f.volts
 }
 
 // batteryVolts は電圧のバイトをボルトに直す。

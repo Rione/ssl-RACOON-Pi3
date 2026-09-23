@@ -26,6 +26,7 @@ var (
 	// 有効なフレームが続けて取れなければもう一方へ切り替えて探す (spiLayoutProbeCycles)。
 	curLayout      = spiLayoutV1
 	lastFrameAt    = -1 // 前回フレームが見つかった位置 (誤同期を避けるため優先する)
+	battery        batteryFilter
 	layoutMisses   int
 	layoutSettled  bool
 	layoutAnnounce bool
@@ -115,7 +116,8 @@ func processSPICommunication(conn spi.Conn) {
 		state.BrWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.BrWheelSpeed)
 		state.FrWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.FrWheelSpeed)
 		applyImu(state.Recvdata)
-		state.BatteryVolts = batteryVolts(curLayout, state.Recvdata.Volt)
+		state.BatteryVolts = battery.update(batteryVolts(curLayout, state.Recvdata.Volt))
+		state.BatteryValid = true
 
 		if state.DebugWheelGraph {
 			wheelgraph.Record(

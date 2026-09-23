@@ -110,6 +110,9 @@ func PrepareHardwareTx(sendbytes []byte) []byte {
 }
 
 func CheckBatteryStatus() {
+	if !state.BatteryValid {
+		return // まだ一度も STM から受け取れていない
+	}
 	if state.BatteryVolts < state.BatteryCriticalVolts {
 		state.IsRobotError = true
 		state.RobotErrorCode = 2

@@ -182,7 +182,7 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if state.BatteryVolts < state.BatteryLowVolts {
+	if state.BatteryValid && state.BatteryVolts < state.BatteryLowVolts {
 		fail("battery too low: %.1f V (< %.1f V)", state.BatteryVolts, state.BatteryLowVolts)
 	}
 	log.Printf("[TRAJ] STM ok, battery %.1f V", state.BatteryVolts)

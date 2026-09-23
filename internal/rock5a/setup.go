@@ -220,7 +220,7 @@ func RunGPIO(done <-chan struct{}) {
 		case <-done:
 			return
 		default:
-			if state.BatteryVolts <= alarmVoltage {
+			if state.BatteryValid && state.BatteryVolts <= alarmVoltage {
 				handleBatteryAlarm(led2, button1, &alarmVoltage)
 			} else {
 				ledInterval = handleNormalOperation(led, button1, button2, ledInterval)

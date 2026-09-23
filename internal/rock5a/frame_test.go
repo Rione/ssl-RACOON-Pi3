@@ -205,3 +205,27 @@ func TestImuMountingRotation(t *testing.T) {
 		t.Errorf("nose up: forward %.2f left %.2f, want -4.4 and ~0", fwd, left)
 	}
 }
+
+// 電圧のならし。起動直後や、値が一周した 1 フレームだけの化けを拾わない。
+func TestBatteryFilterIgnoresSingleFrameJumps(t *testing.T) {
+	var f batteryFilter
+	if v := f.update(25.0); v != 25.0 {
+		t.Fatalf("最初の読みはそのまま採用する: %v", v)
+	}
+	// 1 フレームだけ 0.4 V に化けても無視する (古いファームの一周)
+	for i := 0; i < 2; i++ {
+		if v := f.update(0.4); v != 25.0 {
+			t.Errorf("化けた値を採用した: %v", v)
+		}
+		if v := f.update(25.0); v != 25.0 {
+			t.Errorf("正しい値に戻らない: %v", v)
+		}
+	}
+	// 本当に変わったとき (電池交換) は、続けて出れば採用する
+	for i := 0; i < batteryJumpHold; i++ {
+		f.update(16.0)
+	}
+	if v := f.update(16.0); v != 16.0 {
+		t.Errorf("続けて出た値は採用すべき: %v", v)
+	}
+}

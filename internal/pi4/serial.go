@@ -56,6 +56,7 @@ func processSerialCommunication(port serial.Port) {
 	state.Recvdata = parseRecvBuf(recvbuf)
 	// 旧基板 (Pi 4B の機体) は 0.1 V/LSB のまま。
 	state.BatteryVolts = float64(state.Recvdata.Volt) * 0.1
+	state.BatteryValid = true
 
 	state.FlWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.FlWheelSpeed)
 	state.BlWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.BlWheelSpeed)

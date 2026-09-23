@@ -110,6 +110,10 @@ var (
 // 生の Recvdata.Volt ではなくこちらで判定する (SPI_PROTOCOL.md の倍率が世代で違うため)。
 var BatteryVolts float64
 
+// BatteryValid は STM から一度でも電圧を受け取れたか。
+// 受け取る前 (フレームの形を見分けている間など) は電池の判定をしない。
+var BatteryValid bool
+
 // IMU の SI に直した値 (SPI の周期ごとに更新。IMU の無いファームでは 0 のまま)。
 // ImuValid が false のときは中身を使わないこと。
 var (
