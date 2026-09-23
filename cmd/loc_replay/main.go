@@ -264,6 +264,9 @@ type sample struct {
 	wheelStamp localization.Stamp
 	wheels     [localization.NumWheels]float64 // スロット順
 	hasWheel   bool
+	// imu は同じ SPI フレームで届いた IMU。古い記録には無い。
+	imu    localization.ImuSample
+	hasImu bool
 }
 
 type visionSample struct {
@@ -673,6 +676,10 @@ func replay(cfg localization.Config, ws []sample, vs []visionSample, delay time.
 			vi++
 		}
 		est.AddWheel(localization.WheelSample{Stamp: w.wheelStamp, Omega: w.wheels})
+		// 実機と同じ順 (車輪 → IMU → vision) で入れる。
+		if w.hasImu && cfg.Noise.EnableGyro {
+			est.AddImu(w.imu)
+		}
 		out = append(out, est.Current())
 	}
 
@@ -805,6 +812,9 @@ func reportComparison(cfg localization.Config, ws []sample, vs []visionSample,
 		{"no slip state", func(c *localization.Config) { c.Noise.EnableSlip = false }},
 		{"no ZUPT", func(c *localization.Config) { c.Noise.EnableZupt = false }},
 		{"no adaptive R", func(c *localization.Config) { c.Noise.AdaptiveVisionR = false }},
+		// IMU を積む価値を測るための項目。ジャイロを ω の観測として使うのをやめると、
+		// 向きは車輪と vision だけから決まる (2026-09 に IMU が届くようになったので追加)。
+		{"no gyro (IMU off)", func(c *localization.Config) { c.Noise.EnableGyro = false }},
 		{"constant wheel noise", func(c *localization.Config) { c.Noise.WheelNoiseSpeedCoef = 0 }},
 		{"no delay compensation", func(c *localization.Config) {}},
 	}

@@ -23,6 +23,7 @@ import (
 //	tv_s            その行で見ていた vision の撮影時刻 [s]
 //	pose_*          vision で見た姿勢 (生値、mm と rad)
 //	wheel_*_rad_s   STM から届いた 4 輪の回転速度 (17 本のみ)
+//	imu_*           STM から届いた IMU (2026-09 以降の記録のみ)
 //
 // 同じ撮影が複数行に出るので、vision は tv_s で重複を落とす。
 
@@ -33,6 +34,8 @@ type poCRun struct {
 	vision []visionSample
 	// hasWheels は車輪の列があったか。
 	hasWheels bool
+	// hasImu は IMU の列があったか。古い記録には無い。
+	hasImu bool
 }
 
 func readPoCCSV(path string) (*poCRun, error) {
@@ -66,7 +69,15 @@ func readPoCCSV(path string) (*poCRun, error) {
 		}
 	}
 
-	out := &poCRun{path: path, hasWheels: hasWheels}
+	imuCols := []string{"imu_valid", "imu_yaw_rate_rad_s", "imu_accel_x_m_s2", "imu_accel_y_m_s2"}
+	hasImu := true
+	for _, n := range imuCols {
+		if _, ok := col[n]; !ok {
+			hasImu = false
+		}
+	}
+
+	out := &poCRun{path: path, hasWheels: hasWheels, hasImu: hasImu}
 	lastTv := math.NaN()
 	for {
 		rec, err := r.Read()
@@ -103,7 +114,23 @@ func readPoCCSV(path string) (*poCRun, error) {
 				}
 			}
 			if ok {
-				out.wheels = append(out.wheels, sample{wheelStamp: stamp, wheels: w, hasWheel: true})
+				sm := sample{wheelStamp: stamp, wheels: w, hasWheel: true}
+				// IMU は車輪と同じ SPI フレームで届くので、時刻も同じ。
+				if hasImu && truthy(rec, col, "imu_valid") {
+					gz := get("imu_yaw_rate_rad_s")
+					ax, ay := get("imu_accel_x_m_s2"), get("imu_accel_y_m_s2")
+					if !math.IsNaN(gz) {
+						sm.imu = localization.ImuSample{
+							Stamp: stamp, GyroZ: gz, HasGyro: true,
+						}
+						if !math.IsNaN(ax) && !math.IsNaN(ay) {
+							sm.imu.Accel = localization.Vec2{X: ax, Y: ay}
+							sm.imu.HasAccel = true
+						}
+						sm.hasImu = true
+					}
+				}
+				out.wheels = append(out.wheels, sm)
 			}
 		}
 
@@ -123,6 +150,19 @@ func readPoCCSV(path string) (*poCRun, error) {
 	sort.Slice(out.wheels, func(i, j int) bool { return out.wheels[i].wheelStamp < out.wheels[j].wheelStamp })
 	sort.Slice(out.vision, func(i, j int) bool { return out.vision[i].arrival < out.vision[j].arrival })
 	return out, nil
+}
+
+// truthy は CSV の真偽の列を読む。書き手によって "1" と "true" のどちらもありうる。
+func truthy(rec []string, col map[string]int, name string) bool {
+	i, ok := col[name]
+	if !ok || i >= len(rec) {
+		return false
+	}
+	switch rec[i] {
+	case "1", "true", "TRUE", "True":
+		return true
+	}
+	return false
 }
 
 // loadPoCRuns はパターンに合う CSV をすべて読む。
