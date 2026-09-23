@@ -294,8 +294,7 @@ func printHelp() {
   cooldown=<ms>  再キックまでの待ち時間
   period=<ms>    SPI 送信周期
   charge=on|off  コンデンサ充電フラグ (既定: on)
-  vel=(x,y,ang)  ベース速度 [mm/s, mm/s, mrad/s]
-`)
+  vel=(x,y,ang)  ベース速度 [mm/s, mm/s, mrad/s]`)
 }
 
 func (r *spiRunner) start() {
