@@ -221,8 +221,9 @@ func applyImu(d state.RecvData) {
 	if !d.HasIMU {
 		return
 	}
-	state.ImuAccelXMS2 = float64(d.AccelXRaw) * spiAccelPerLSBG * gravityMS2
-	state.ImuAccelYMS2 = float64(d.AccelYRaw) * spiAccelPerLSBG * gravityMS2
+	sx := float64(d.AccelXRaw) * spiAccelPerLSBG * gravityMS2
+	sy := float64(d.AccelYRaw) * spiAccelPerLSBG * gravityMS2
+	state.ImuAccelXMS2, state.ImuAccelYMS2 = bodyFromImuAccel(sx, sy)
 	state.ImuYawRateRadS = float64(d.YawRateRaw) * spiYawRatePerLSBRad
 	state.ImuYawRad = float64(d.YawAngleRaw) * spiYawPerLSBRad
 }

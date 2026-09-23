@@ -522,3 +522,42 @@ func TestValidateRejectsUnsafeTrajectories(t *testing.T) {
 		t.Error("a trajectory not starting at the origin must be rejected")
 	}
 }
+
+// 横で回す推定器に観測が渡り、記録に残ること (制御には使わない)。
+func TestDriverRecordsTheEstimator(t *testing.T) {
+	gen := DefaultGenConfig()
+	gen.Size, gen.Speed = 0.3, 0.2
+	rel, _ := Generate(gen)
+	r := newSim(localization.Pose2{X: 0.2, Y: -0.1, Theta: 0.5})
+	d, err := NewDriver(rel, DefaultConfig(), r.vision, r.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := localization.DefaultConfig()
+	cfg.Geometry = PoCGeometry()
+	e, err := localization.NewEstimator(cfg, localization.EstimatorOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.SetEstimator(e)
+	// 机上の機体はジャイロを出さないので、車輪と vision だけで回る
+	run(t, r, d, 30)
+	if st, reason := d.Status(); st != Done {
+		t.Fatalf("ended in %s: %s", st, reason)
+	}
+	smp := d.Samples()
+	last := smp[len(smp)-1]
+	if !last.EstValid {
+		t.Fatal("the estimate must be recorded")
+	}
+	if last.Est.Health == localization.HealthInvalid {
+		t.Errorf("estimator health %v", last.Est.Health)
+	}
+	// 推定は真の位置 (机上の機体) の近くに居ること
+	if d := math.Hypot(last.Est.Pose.X-r.pose.X, last.Est.Pose.Y-r.pose.Y); d > 0.05 {
+		t.Errorf("estimate is %.0f mm away from the simulated robot", d*1000)
+	}
+	if st := e.Stats(); st.WheelUpdates == 0 || st.VisionUpdates == 0 {
+		t.Errorf("estimator did not get both observations: %+v", st)
+	}
+}

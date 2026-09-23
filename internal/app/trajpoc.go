@@ -146,6 +146,15 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 	}); err != nil {
 		fail("wheel check: %v", err)
 	}
+	// 自己位置推定を横で回して記録する (制御には使わない。IMU あり/なしの比較に使う)。
+	locCfg := localization.DefaultConfig()
+	locCfg.Geometry = trajpoc.PoCGeometry()
+	locCfg.Noise.WheelNoise = 0.3 // 実機の記録から (docs/traj-poc-log.md §5-17)
+	if est, err := localization.NewEstimator(locCfg, localization.EstimatorOptions{}); err != nil {
+		fail("estimator: %v", err)
+	} else {
+		driver.SetEstimator(est)
+	}
 	// IMU (MainBoard_V26_2 以降) も記録する。制御にはまだ使わない。
 	driver.SetImuSource(func() (float64, float64, float64, bool) {
 		return state.ImuYawRateRadS, state.ImuAccelXMS2, state.ImuAccelYMS2, state.ImuValid

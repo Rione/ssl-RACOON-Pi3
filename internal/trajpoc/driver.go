@@ -53,12 +53,15 @@ type Sample struct {
 	CmdWorld                         localization.Vec2
 	CmdOmega                         float64
 	CmdBody                          localization.Vec2
-	Held                             bool               // vision が古くて 0 を出した周期
-	Wheels                           [4]float64         // その周期に読んだ車輪の回転速度 [rad/s] (FL, BL, BR, FR)
-	ImuValid                         bool               // その周期に IMU が読めたか
-	ImuYawRate, ImuAccelX, ImuAccelY float64            // [rad/s], [m/s^2] (機体座標)
-	NearGoal                         bool               // 止まり際の √ブレーキ則で指令した周期
-	Pred                             localization.Pose2 // そのときのスミス予測の位置 (NearGoal のときだけ)
+	Held                             bool       // vision が古くて 0 を出した周期
+	Wheels                           [4]float64 // その周期に読んだ車輪の回転速度 [rad/s] (FL, BL, BR, FR)
+	ImuValid                         bool       // その周期に IMU が読めたか
+	ImuYawRate, ImuAccelX, ImuAccelY float64    // [rad/s], [m/s^2] (機体座標)
+	// 自己位置推定の出力 (横で回しているだけ。制御には使っていない)
+	Est      localization.Estimate
+	EstValid bool
+	NearGoal bool               // 止まり際の √ブレーキ則で指令した周期
+	Pred     localization.Pose2 // そのときのスミス予測の位置 (NearGoal のときだけ)
 }
 
 // Driver は link.VelocityOverride を満たし、SPI の周期 (125 Hz) ごとに速度を作る。
@@ -71,6 +74,8 @@ type Driver struct {
 	now    Clock
 	wheels WheelSource                  // nil なら記録も検査もしない
 	imu    ImuSource                    // nil なら記録しない
+	est    *localization.Estimator      // nil なら回さない。横で回して記録するだけ (制御には使わない)
+	estTV  float64                      // 推定器に渡した最後の撮影時刻
 	check  *supervisor.WheelVisionCheck // 車輪と vision の食い違いの検査 (wheels があるとき)
 
 	state  State
@@ -112,6 +117,14 @@ func (d *Driver) SetWheelSource(w WheelSource) error {
 	defer d.mu.Unlock()
 	d.wheels, d.check = w, c
 	return nil
+}
+
+// SetEstimator は自己位置推定を横で回す (記録するだけで、指令には使わない)。Arm の前に呼ぶ。
+// 車輪・IMU・vision を同じ周期で渡し、その時点の推定を記録に残す。
+func (d *Driver) SetEstimator(e *localization.Estimator) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.est, d.estTV = e, math.Inf(-1)
 }
 
 // SetImuSource は IMU の読み出しを登録する (記録用)。Arm の前に呼ぶ。
@@ -256,6 +269,10 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	if d.imu != nil {
 		s.ImuYawRate, s.ImuAccelX, s.ImuAccelY, s.ImuValid = d.imu()
 	}
+	if d.est != nil {
+		d.feedEstimator(now, capture, pose, s)
+		s.Est, s.EstValid = d.est.Current(), true
+	}
 	if d.wheels != nil {
 		s.Wheels = d.wheels()
 		// vision が古いときは下の「止まって待つ」に任せる (止まった vision と比べると必ず食い違う)
@@ -306,6 +323,25 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	s.CmdWorld, s.CmdOmega, s.CmdBody = vel, omega, body
 	d.samples = append(d.samples, s)
 	return toInt16(body.X * 1000), toInt16(body.Y * 1000), toInt16(omega * 1000), true
+}
+
+// feedEstimator は 1 周期ぶんの観測を推定器へ渡す。
+// 車輪と IMU は同じ SPI のフレームで届くので同じ時刻 (1 周期前の転送) にし、
+// vision は新しい撮影のときだけ渡す。順番は「車輪 → IMU → vision」(vision は遅れて届くため)。
+func (d *Driver) feedEstimator(now, capture localization.Stamp, pose localization.Pose2, s Sample) {
+	const spiPeriod = 0.008
+	at := now - localization.Stamp(spiPeriod*1e9)
+	if d.wheels != nil {
+		d.est.AddWheel(localization.WheelSample{Stamp: at, Omega: s.Wheels})
+	}
+	if s.ImuValid {
+		d.est.AddImu(localization.ImuSample{Stamp: at, GyroZ: s.ImuYawRate,
+			Accel: localization.Vec2{X: s.ImuAccelX, Y: s.ImuAccelY}, HasGyro: true, HasAccel: true})
+	}
+	if s.TV > d.estTV {
+		d.estTV = s.TV
+		d.est.AddVision(localization.VisionPose{Stamp: capture, Pose: pose, Confidence: 1})
+	}
 }
 
 // refAt は指標に使う参照。軌道の前後では端の点で静止しているものとして扱う

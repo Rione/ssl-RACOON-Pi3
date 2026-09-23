@@ -43,6 +43,17 @@ var (
 	spiLayoutV2 = spiLayout{Name: "v2 (21B, IMU あり)", FrameSize: 21, PayloadSize: 19, HasIMU: true, VoltPerLSB: 0.2}
 )
 
+// IMU は機体に対して 90° 回して取り付けられている (2026-09-23 に実機で確認)。
+//
+//	IMU の +X = 機体の右   (機体の左側を持ち上げたら X が +5.4 m/s^2、Y はほぼ 0)
+//	IMU の +Y = 機体の前   (ドリブラ側を持ち上げたら Y が -4.4 m/s^2、X はほぼ 0)
+//
+// こちらの約束は「前が +x、左が +y」なので、受け取った時点で直す。
+// ヨーの角速度は面内の回転なので、この付け替えでは変わらない (反時計回りが正。1 周で +2π を確認)。
+func bodyFromImuAccel(sensorX, sensorY float64) (forward, left float64) {
+	return sensorY, -sensorX
+}
+
 // batteryVolts は電圧のバイトをボルトに直す。
 //
 // 21 バイトのフレームには、倍率を直す前の中間のファーム (×10 のまま IMU を載せた版) もある。

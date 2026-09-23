@@ -95,12 +95,14 @@ func TestParseRecvIMU(t *testing.T) {
 	if !state.ImuValid {
 		t.Fatal("ImuValid must be true")
 	}
+	// state に入るのは機体の向きに直した後の値 (前が +x、左が +y)。
+	// IMU は 90 度回して付いているので、前後 = IMU の Y、左右 = -IMU の X。
 	for _, c := range []struct {
 		name      string
 		got, want float64
 	}{
-		{"accelX", state.ImuAccelXMS2, 0.25 * 9.80665},
-		{"accelY", state.ImuAccelYMS2, -9.80665},
+		{"前後 (= IMU の Y)", state.ImuAccelXMS2, -9.80665},
+		{"左右 (= -IMU の X)", state.ImuAccelYMS2, -0.25 * 9.80665},
 		{"yawRate", state.ImuYawRateRadS, 1.0},
 		{"yaw", state.ImuYawRad, 1.5708},
 	} {
@@ -188,5 +190,18 @@ func TestBatteryVoltsScale(t *testing.T) {
 		if got := batteryVolts(c.l, c.raw); math.Abs(got-c.want) > 1e-9 {
 			t.Errorf("%s: raw %d -> %.2f V, want %.2f V", c.name, c.raw, got, c.want)
 		}
+	}
+}
+
+// IMU の取り付け。実機で確かめた向き (config.go の bodyFromImuAccel のコメント) を固定する。
+func TestImuMountingRotation(t *testing.T) {
+	// 機体の左側を持ち上げた実測: IMU の X が +5.4、Y はほぼ 0。
+	// 機体の約束では「左が +y」なので、左を上げたら左方向の成分は負になる。
+	if fwd, left := bodyFromImuAccel(5.4, 0.1); math.Abs(fwd-0.1) > 1e-9 || math.Abs(left+5.4) > 1e-9 {
+		t.Errorf("left side up: forward %.2f left %.2f, want ~0 and -5.4", fwd, left)
+	}
+	// 前 (ドリブラ側) を持ち上げた実測: IMU の Y が -4.4、X はほぼ 0 -> 前方向の成分が負
+	if fwd, left := bodyFromImuAccel(-0.1, -4.4); math.Abs(fwd+4.4) > 1e-9 || math.Abs(left-0.1) > 1e-9 {
+		t.Errorf("nose up: forward %.2f left %.2f, want -4.4 and ~0", fwd, left)
 	}
 }
