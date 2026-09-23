@@ -1,0 +1,48 @@
+racoon-56011
+
+2026/09/22 11:44:35 Build version: v0.0.0-20260922114418-3d3b5ed92b4d
+2026/09/22 11:44:35 RACOON-Pi3 version: v0.0.0-20260922114418-3d3b5ed92b4d
+2026/09/22 11:44:35 Exporting PWM...
+2026/09/22 11:44:35 Buzzer PWM initialized: /sys/class/pwm/pwmchip1/pwm0
+DIP1: 1
+DIP2: 1
+DIP3: 1
+DIP4: 1
+GOT ID FROM DIP SW: 15
+2026/09/22 11:44:35 Local MAC for AI receive: 20:bd:1d:d7:3f:f2 (wlan0)
+2026/09/22 11:44:35 Local IP for AI receive: 172.15.0.34 (wlan0)
+2026/09/22 11:44:35 [TRAJ] reading the trajectory from stdin (JSON lines, then "END") ...
+2026/09/22 11:44:35 [TRAJ] 215 points, 3.40 s, max radius 0.30 m, max speed 0.20 m/s, max yaw rate 0.00 rad/s
+2026/09/22 11:44:35 [TRAJ] waiting for vision of blue 12 ...
+2026/09/22 11:44:35 [VISION] Listening on 224.5.23.2:10006 (team=blue id=12)
+2026/09/22 11:44:35 [TRAJ] *** RUNNING: method=ffp_vlead interp=hermite from (-393, -830) mm, 78.2 deg. Ctrl+C to stop ***
+2026/09/22 11:44:35 Emergency stop released (InfoEmgStop: 1 -> 0)
+2026/09/22 11:44:35 Pythonプロセスを開始します（board=rock5a）。
+2026/09/22 11:44:35 Pythonプロセスが正常に開始されました。
+2026/09/22 11:44:35 API Server listening on :9191
+/usr/bin/python3: No module named camera
+2026/09/22 11:44:36 [TRAJ] t= 0.70s err=(   -2,   +0) mm cmd=(  +48, +196) mm/s age=  3 ms
+2026/09/22 11:44:37 [TRAJ] t= 1.70s err=(   -0,   +0) mm cmd=(  -17,  -86) mm/s age=  6 ms
+DIP1: 1
+DIP2: 1
+DIP3: 1
+DIP4: 1
+HEX: 15
+2026/09/22 11:44:37 SPI recv frame mismatch: no valid frame in 40-byte window
+2026/09/22 11:44:37 SPI recv frame recovered
+2026/09/22 11:44:38 [TRAJ] t= 2.75s err=(   -5,   -4) mm cmd=(  -27, -187) mm/s age=  6 ms
+2026/09/22 11:44:39 [TRAJ] t= 3.80s err=(   +2,   +3) mm cmd=(   -5,   -9) mm/s age=  6 ms
+2026/09/22 11:44:40 Emergency stop activated (InfoEmgStop: 0 -> 1)
+=== trajpoc result: method=ffp_vlead interp=hermite Kp=3.00 Kth=4.00 lead=85ms ===
+end: done (trajectory finished)
+vision frames 479, held cycles 0, vision age median 3 ms
+position error     RMS    7.4 mm   max   20.3 mm
+contour error      RMS    3.3 mm   max    9.6 mm   (distance to the path, time ignored)
+along-track mean     +0.6 mm   lag 3 ms   (negative mean = behind the reference)
+cross-track        RMS    3.6 mm
+heading error      RMS   1.18 deg  max   2.94 deg
+final (arrival)       3.3 mm    0.04 deg
+command accel RMS    0.55 m/s^2  (how jerky the command was)
+after the end      heading swing ±1.91 deg, max translation command 29 mm/s  (near-goal=false)
+csv: trajpoc-20260922-114440-ffp_vlead-hermite.csv
+2026/09/22 11:44:40 既存のPythonプロセスを停止します。

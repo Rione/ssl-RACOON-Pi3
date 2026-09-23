@@ -4,10 +4,13 @@ package app
 
 import (
 	"log"
+	"sync/atomic"
 	"time"
 
+	"github.com/Rione/ssl-RACOON-Pi3/internal/api"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/link"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/locadapter"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/loclog"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/state"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/timesync"
@@ -27,44 +30,91 @@ import (
 // 生の 20 バイトをそのまま記録しておけば、STM のバイト配置が確定した後で
 // 過去ログを再デコードできる。仕様確定を待たずに収集を始められる (計画 §6.1)。
 func startLocalization(done <-chan struct{}, myID uint32) func() {
-	if state.LocLogDir == "" {
+	if state.LocLogDir == "" && !state.LocEstimate {
 		return func() {}
 	}
 
 	clock := loclog.NewClock()
-	path := loclog.DefaultPath(state.LocLogDir, myID)
 
-	writer, err := loclog.NewWriter(clock, loclog.Options{
-		Path:       path,
-		StmProfile: state.LocProfile,
-		Metadata: map[string]string{
-			"robot_id":    itoa(int(myID)),
-			"version":     state.Version,
-			"mac_address": state.MACAddress,
-			"team":        state.LocTeam,
-		},
-	})
-	if err != nil {
-		// 記録が始められなくても走行機能は落とさない。
-		log.Printf("[LOC] recording disabled: %v", err)
-		return func() {}
+	// 記録は任意。**-locestimate だけでも動く** (推定を見たいだけのとき)。
+	var writer *loclog.Writer
+	path := ""
+	if state.LocLogDir != "" {
+		path = loclog.DefaultPath(state.LocLogDir, myID)
+		w, err := loclog.NewWriter(clock, loclog.Options{
+			Path:       path,
+			StmProfile: state.LocProfile,
+			Metadata: map[string]string{
+				"robot_id":    itoa(int(myID)),
+				"version":     state.Version,
+				"mac_address": state.MACAddress,
+				"team":        state.LocTeam,
+			},
+		})
+		if err != nil {
+			// 記録が始められなくても走行機能は落とさない。
+			log.Printf("[LOC] recording disabled: %v", err)
+		} else {
+			writer = w
+			log.Printf("[LOC] recording to %s", path)
+		}
 	}
-	log.Printf("[LOC] recording to %s", path)
 
 	recorder, err := locadapter.NewSPIRecorder(clock, writer, state.LocProfile)
 	if err != nil {
-		log.Printf("[LOC] SPI recording disabled: %v", err)
+		log.Printf("[LOC] SPI decoding disabled: %v", err)
+		if writer != nil {
+			_ = writer.Close()
+		}
+		return func() {}
+	}
+	log.Printf("[LOC] SPI %s", recorder.DescribeProfile())
+
+	receiver := startVision(done, clock, writer, myID)
+
+	var live *locadapter.LiveEstimator
+	if state.LocEstimate {
+		live, err = startEstimator(done, recorder, receiver, writer)
+		if err != nil {
+			log.Printf("[LOC] estimator disabled: %v", err)
+		}
+	}
+	if live != nil {
+		// 推定器が SPI の観測を受け、その中で記録も行う。
+		link.SetSPIObserver(live)
+		setLiveEstimator(live)
+		api.SetLocalizationProvider(func() api.LocalizationSnapshot {
+			snap := api.LocalizationSnapshot{
+				Running:  true,
+				Status:   live.Status(),
+				Warnings: live.Warnings(),
+				Stats:    live.Stats(),
+			}
+			if d, ok := live.ActuationDelay(); ok {
+				snap.ActuationDelayMs = float64(d) / float64(time.Millisecond)
+			}
+			if cur, ok := live.Latest(); ok {
+				snap.Estimate = live.Record(cur)
+			}
+			return snap
+		})
 	} else {
-		log.Printf("[LOC] SPI %s", recorder.DescribeProfile())
 		link.SetSPIObserver(recorder)
 	}
 
-	startVision(done, clock, writer, myID)
 	startIdentification(clock, writer)
 
 	return func() {
 		link.SetSPIObserver(nil)
 		link.SetVelocityOverride(nil)
+		setLiveEstimator(nil)
+		api.SetLocalizationProvider(nil)
+		if live != nil {
+			log.Printf("%s", live.Status())
+		}
+		if writer == nil {
+			return
+		}
 		if err := writer.Close(); err != nil {
 			log.Printf("[LOC] closing the recording failed: %v", err)
 			return
@@ -75,12 +125,62 @@ func startLocalization(done <-chan struct{}, myID uint32) func() {
 	}
 }
 
-func startVision(done <-chan struct{}, clock *loclog.Clock, writer *loclog.Writer, myID uint32) {
+// startEstimator は機上の推定器を立ち上げる。
+//
+// **走行機能には繋がない。** 推定は観測に徹し、結果はログ (1 秒ごとの [EST] 行)、
+// MCAP の /est/*、HTTP の /localization に出すだけ。制御へ渡すのは
+// 指令プロトコルが決まってから (計画 P6)。
+func startEstimator(done <-chan struct{}, rec *locadapter.SPIRecorder,
+	receiver *locadapter.VisionReceiver, writer *loclog.Writer) (*locadapter.LiveEstimator, error) {
+	if receiver == nil {
+		return nil, errNoVision
+	}
+	cfg := localization.DefaultConfig()
+	if state.LocGeometry != "" {
+		g, err := localization.LoadGeometryFile(state.LocGeometry)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Geometry = g
+		log.Printf("[EST] geometry from %s", state.LocGeometry)
+	} else {
+		log.Printf("[EST] geometry: built-in effective values "+
+			"(angles %.1f/%.1f/%.1f/%.1f deg, arm %.1f mm)",
+			cfg.Geometry.WheelAnglesDeg[0], cfg.Geometry.WheelAnglesDeg[1],
+			cfg.Geometry.WheelAnglesDeg[2], cfg.Geometry.WheelAnglesDeg[3],
+			cfg.Geometry.MomentArmM*1000)
+	}
+
+	opts := localization.EstimatorOptions{
+		VisionDelayComp: time.Duration(state.LocVisionDelayMs * float64(time.Millisecond)),
+	}
+	if opts.VisionDelayComp != 0 {
+		log.Printf("[EST] vision delay compensation %v", opts.VisionDelayComp)
+	} else {
+		log.Printf("[EST] vision delay compensation is 0; measure it with loc_replay and pass -locvisiondelay")
+	}
+
+	live, err := locadapter.NewLiveEstimator(rec, receiver.Observations(), writer,
+		locadapter.LiveEstimatorConfig{Config: cfg, Options: opts})
+	if err != nil {
+		return nil, err
+	}
+	go locadapter.RunStatusLogger(done, live, writer, time.Second, log.Printf)
+	return live, nil
+}
+
+var errNoVision = errorString("the vision receiver is not running (check -locteam and the interface)")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
+
+func startVision(done <-chan struct{}, clock *loclog.Clock, writer *loclog.Writer, myID uint32) *locadapter.VisionReceiver {
 	team, err := locadapter.ParseTeam(state.LocTeam)
 	if err != nil {
 		// 色を取り違えると別のロボットを自機だと思い込む。黙って続けない。
 		log.Printf("[LOC] vision disabled: %v", err)
-		return
+		return nil
 	}
 
 	// 凸包法によるクロック推定を camera_id ごとに持つ (計画 §5.3)。
@@ -100,7 +200,23 @@ func startVision(done <-chan struct{}, clock *loclog.Clock, writer *loclog.Write
 		}
 	}()
 	go locadapter.RunVisionStatsLogger(done, receiver, time.Second)
+	return receiver
 }
+
+// liveEstimator は HTTP から読むための最新の推定器。
+var liveEstimator atomic.Pointer[locadapter.LiveEstimator]
+
+func setLiveEstimator(e *locadapter.LiveEstimator) {
+	if e == nil {
+		liveEstimator.Store(nil)
+		return
+	}
+	liveEstimator.Store(e)
+}
+
+// LiveEstimator は機上で回っている推定器を返す。動いていなければ nil。
+// HTTP の /localization が使う。
+func LiveEstimator() *locadapter.LiveEstimator { return liveEstimator.Load() }
 
 func startIdentification(clock *loclog.Clock, writer *loclog.Writer) {
 	if !state.LocIdent {

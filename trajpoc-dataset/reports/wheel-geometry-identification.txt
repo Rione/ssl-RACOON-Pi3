@@ -1,0 +1,39 @@
+/home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-114434-ffp_vlead-hermite.csv: 512 samples
+/home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-114440-ffp_vlead-hermite.csv: 511 samples
+/home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131552-ffp_vlead-hermite.csv: 706 samples
+/home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131559-ffp_vlead-hermite.csv: 564 samples
+/home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131612-ffp_vlead-hermite.csv: 1251 samples
+/home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131620-ffp_vlead-hermite.csv: 708 samples
+samples 4252, excitation vx 0.234 m/s  vy 0.179 m/s  omega 0.617 rad/s, condition 14.3
+  slot 0 -> FL  sign -1  angle -124.63 deg (err 0.37)  r 29.33 mm  arm 62.64 mm  R2 0.9731  rms 1.1601 rad/s
+  slot 1 -> BL  sign -1  angle  -43.92 deg (err 1.08)  r 28.03 mm  arm 48.71 mm  R2 0.9705  rms 1.2221 rad/s
+  slot 2 -> BR  sign -1  angle  +43.66 deg (err 1.34)  r 28.18 mm  arm 61.78 mm  R2 0.9832  rms 1.0070 rad/s
+  slot 3 -> FR  sign -1  angle +122.57 deg (err 2.43)  r 28.05 mm  arm 70.67 mm  R2 0.9796  rms 1.2001 rad/s
+geometry:
+{
+  "wheelAnglesDeg": [
+    55.366038976159025,
+    136.08198114335116,
+    -136.3424106240559,
+    -57.42561828478429
+  ],
+  "wheelRadiusM": [
+    0.029333483007680284,
+    0.028033284046279906,
+    0.02817790270135213,
+    0.02804698193988276
+  ],
+  "momentArmM": 0.060950954669015026,
+  "wheelSlotOrder": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "wheelSigns": [
+    -1,
+    -1,
+    -1,
+    -1
+  ]
+}

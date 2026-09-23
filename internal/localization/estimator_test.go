@@ -234,3 +234,46 @@ func TestNewEstimatorRejectsBadConfig(t *testing.T) {
 		t.Error("expected an error for a negative moment arm")
 	}
 }
+
+// **実機ログで見つかった回帰。**
+//
+// vision の観測時刻が車輪より先になると (VisionDelayComp が負、あるいは
+// 車輪の刻印が遅れている)、次の車輪サンプルの dt が負になる。以前はそこで
+// 黙って捨てていたので、**710 回の周期で車輪の更新が 0 回**という状態のまま
+// 「動いている」ように見えていた。
+func TestWheelSamplesAreNotDroppedWhenVisionRunsAhead(t *testing.T) {
+	cfg := DefaultConfig()
+	e, err := NewEstimator(cfg, EstimatorOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := NewKinematics(cfg.Geometry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wheels := k.WheelFromBody(0.4, 0, 0)
+	var slots [NumWheels]float64
+	for slot := 0; slot < NumWheels; slot++ {
+		slots[slot] = wheels[cfg.Geometry.WheelSlotOrder[slot]]
+	}
+
+	step := 8 * time.Millisecond
+	stamp := Stamp(0)
+	for i := 0; i < 300; i++ {
+		tt := float64(i) * step.Seconds()
+		// vision の刻印を車輪より 9 ms 先にする。
+		v := stamp.Add(9 * time.Millisecond)
+		e.AddVision(VisionPose{Stamp: v, Arrival: stamp, Pose: Pose2{X: 0.4 * tt}})
+		e.AddWheel(WheelSample{Stamp: stamp, Omega: slots})
+		stamp += Stamp(step)
+	}
+
+	st := e.Stats()
+	if st.WheelUpdates < 250 {
+		t.Fatalf("only %d wheel updates out of 300 cycles; out-of-order wheel samples are being dropped "+
+			"(too old: %d)", st.WheelUpdates, st.WheelTooOld)
+	}
+	if st.WheelTooOld > 0 {
+		t.Errorf("%d wheel samples fell out of the buffer; the retro path should have caught them", st.WheelTooOld)
+	}
+}

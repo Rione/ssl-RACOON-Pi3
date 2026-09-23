@@ -127,6 +127,8 @@ func handleRequest(conn net.Conn) {
 		handleRelaxColor(conn, pathParts)
 	case "powershutdown":
 		handlePowerShutdown(conn)
+	case "localization":
+		handleLocalization(conn)
 	default:
 		handleStatus(conn)
 	}

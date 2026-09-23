@@ -153,4 +153,29 @@ type Estimate struct {
 	SinceVision time.Duration
 	// Health は推定の健全性。
 	Health Health
+
+	// Params はオンライン較正中の機体パラメータの倍率。
+	//
+	// **収束値そのものが「CAD と同定値のどちらが正しいか」の答えになる**
+	// (docs/self-localization-research-20260923.md §4.1)。必ずログに出すこと。
+	Params KinematicParams
+
+	// WheelResidual は 4 輪の冗長残差 n^T w [rad/s]。
+	// 滑りが無く幾何が正しければゼロ。**推定に依存しない検査**である。
+	WheelResidual float64
+
+	// Stationary は停止判定が成立しているか (ZUPT が効いている)。
+	Stationary bool
+}
+
+// KinematicParams はオンライン較正した機体パラメータの倍率。
+type KinematicParams struct {
+	// TransScale は並進の倍率 (公称 1)。1.07 なら実機の車輪半径が公称より 7% 大きい。
+	TransScale float64
+	// RotScale は回転の倍率 (公称 1)。モーメントアームと半径の比の誤差を吸う。
+	RotScale float64
+	// AngleBias は取付角の補正 [rad] (公称 0)。
+	AngleBias float64
+	// Frozen は補正を凍結中か (vision が途切れているあいだ)。
+	Frozen bool
 }

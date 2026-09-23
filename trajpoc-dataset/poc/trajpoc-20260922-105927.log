@@ -1,0 +1,57 @@
+racoon-56011
+
+2026/09/22 10:59:27 Build version: v0.0.0-20260922105638-662c0f9ea335
+2026/09/22 10:59:27 RACOON-Pi3 version: v0.0.0-20260922105638-662c0f9ea335
+2026/09/22 10:59:27 Exporting PWM...
+2026/09/22 10:59:27 Buzzer PWM initialized: /sys/class/pwm/pwmchip1/pwm0
+DIP1: 1
+DIP2: 1
+DIP3: 1
+DIP4: 1
+GOT ID FROM DIP SW: 15
+2026/09/22 10:59:27 Local MAC for AI receive: 20:bd:1d:d7:3f:f2 (wlan0)
+2026/09/22 10:59:27 Local IP for AI receive: 172.15.0.34 (wlan0)
+2026/09/22 10:59:27 [TRAJ] reading the trajectory from stdin (JSON lines, then "END") ...
+2026/09/22 10:59:27 [TRAJ] 616 points, 9.82 s, max radius 0.60 m, max speed 0.40 m/s, max yaw rate 0.00 rad/s
+2026/09/22 10:59:27 [TRAJ] waiting for vision of blue 12 ...
+2026/09/22 10:59:27 [VISION] Listening on 224.5.23.2:10006 (team=blue id=12)
+2026/09/22 10:59:27 SPI recv frame mismatch: no valid frame in 40-byte window
+2026/09/22 10:59:27 SPI recv frame recovered
+2026/09/22 10:59:27 [TRAJ] *** RUNNING: method=ffp_vlead interp=hermite from (-490, -1228) mm, 95.7 deg. Ctrl+C to stop ***
+2026/09/22 10:59:27 Emergency stop released (InfoEmgStop: 1 -> 0)
+2026/09/22 10:59:28 Pythonプロセスを開始します（board=rock5a）。
+2026/09/22 10:59:28 Pythonプロセスが正常に開始されました。
+2026/09/22 10:59:28 API Server listening on :9191
+/usr/bin/python3: No module named camera
+2026/09/22 10:59:28 SPI recv frame mismatch: no valid frame in 40-byte window
+2026/09/22 10:59:28 SPI recv frame recovered
+2026/09/22 10:59:28 [TRAJ] t= 0.70s err=(   -4,  +20) mm cmd=( -299, +190) mm/s age=  0 ms
+2026/09/22 10:59:29 [TRAJ] t= 1.70s err=(   -9,  -21) mm cmd=( -302, -187) mm/s age= 12 ms
+2026/09/22 10:59:30 [TRAJ] t= 2.74s err=(   -2,   +1) mm cmd=( +192, -363) mm/s age=  4 ms
+DIP1: 1
+DIP2: 1
+DIP3: 1
+DIP4: 1
+HEX: 15
+2026/09/22 10:59:31 SPI recv frame mismatch: no valid frame in 40-byte window
+2026/09/22 10:59:31 SPI recv frame recovered
+2026/09/22 10:59:31 [TRAJ] t= 3.75s err=(   +5,   +8) mm cmd=( +379,  +79) mm/s age=  6 ms
+2026/09/22 10:59:32 [TRAJ] t= 4.80s err=(  +11,   -1) mm cmd=(  -67, +410) mm/s age=  7 ms
+2026/09/22 10:59:33 [TRAJ] t= 5.80s err=(   -4,  +14) mm cmd=( +389,  +97) mm/s age=  3 ms
+2026/09/22 10:59:34 [TRAJ] t= 6.85s err=(  -16,  -10) mm cmd=( +252, -319) mm/s age=  2 ms
+2026/09/22 10:59:35 [TRAJ] t= 7.85s err=(  -17,   -6) mm cmd=( -242, -264) mm/s age=  6 ms
+2026/09/22 10:59:37 [TRAJ] t= 8.90s err=(   -1,  +11) mm cmd=( -335, +211) mm/s age= 14 ms
+2026/09/22 10:59:38 [TRAJ] t= 9.95s err=(   +6,  -16) mm cmd=(  -17,  +48) mm/s age=  6 ms
+2026/09/22 10:59:38 Emergency stop activated (InfoEmgStop: 0 -> 1)
+=== trajpoc result: method=ffp_vlead interp=hermite Kp=3.00 Kth=4.00 lead=100ms ===
+end: done (trajectory finished)
+vision frames 1035, held cycles 0, vision age median 5 ms
+position error     RMS   13.8 mm   max   25.3 mm
+contour error      RMS    9.4 mm   max   23.4 mm   (distance to the path, time ignored)
+along-track mean     +3.1 mm   lag -3 ms   (negative mean = behind the reference)
+cross-track        RMS    9.9 mm
+heading error      RMS   2.03 deg  max   9.20 deg
+final (arrival)       1.3 mm    3.17 deg
+command accel RMS    0.98 m/s^2  (how jerky the command was)
+csv: trajpoc-20260922-105939-ffp_vlead-hermite.csv
+2026/09/22 10:59:39 既存のPythonプロセスを停止します。

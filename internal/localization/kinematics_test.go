@@ -46,23 +46,29 @@ func TestKinematicsRoundTrip(t *testing.T) {
 func TestKinematicsForwardMotionSigns(t *testing.T) {
 	k := newTestKinematics(t)
 	w := k.WheelFromBody(1.0, 0, 0)
-	// v_i = sin(a_i)*vx。sin(55) > 0, sin(135) > 0, sin(-135) < 0, sin(-55) < 0。
-	if w[WheelFL] <= 0 || w[WheelBL] <= 0 {
-		t.Errorf("forward motion: left wheels should spin positive, got FL=%v BL=%v", w[WheelFL], w[WheelBL])
+	// v_i = sign_i * sin(a_i)*vx / r。sin は左輪で正、右輪で負なので、
+	// 左右の輪は必ず逆向きに回る (符号規約がどちらでも成り立つ)。
+	if w[WheelFL]*w[WheelBL] <= 0 {
+		t.Errorf("forward motion: left wheels should spin the same way, got FL=%v BL=%v", w[WheelFL], w[WheelBL])
 	}
-	if w[WheelBR] >= 0 || w[WheelFR] >= 0 {
-		t.Errorf("forward motion: right wheels should spin negative, got BR=%v FR=%v", w[WheelBR], w[WheelFR])
+	if w[WheelBR]*w[WheelFR] <= 0 {
+		t.Errorf("forward motion: right wheels should spin the same way, got BR=%v FR=%v", w[WheelBR], w[WheelFR])
+	}
+	if w[WheelFL]*w[WheelFR] >= 0 {
+		t.Errorf("forward motion: left and right wheels should spin opposite ways, got FL=%v FR=%v", w[WheelFL], w[WheelFR])
 	}
 }
 
-// 純回転では 4 輪すべてが同じ向き・同じ大きさで回る。
+// 純回転では 4 輪すべてが同じ向きに回る (大きさは半径の違いのぶんだけ異なる)。
 func TestKinematicsPureRotation(t *testing.T) {
 	k := newTestKinematics(t)
 	const omega = 2.0
 	w := k.WheelFromBody(0, 0, omega)
 	g := DefaultGeometry()
-	want := -g.MomentArmM * omega / g.WheelRadiusM[0]
+	// 符号規約 (WheelSigns) がそのまま倍率として乗る。
+	// **車輪半径は輪ごとに違う** (実機で約 5% 違う) ので、期待値も輪ごとに出す。
 	for i, got := range w {
+		want := g.WheelSigns[i] * -g.MomentArmM * omega / g.WheelRadiusM[i]
 		if math.Abs(got-want) > 1e-12 {
 			t.Errorf("pure rotation: wheel[%d] = %v, want %v", i, got, want)
 		}
@@ -74,8 +80,10 @@ func TestKinematicsPureRotation(t *testing.T) {
 func TestKinematicsSignFlip(t *testing.T) {
 	base := newTestKinematics(t)
 	cfg := DefaultGeometry()
+	// **既定に対して反転させる。** 既定値そのものを書くと、既定が変わったときに
+	// 黙って no-op になる。
 	for i := range cfg.WheelSigns {
-		cfg.WheelSigns[i] = -1
+		cfg.WheelSigns[i] = -cfg.WheelSigns[i]
 	}
 	flipped, err := NewKinematics(cfg)
 	if err != nil {

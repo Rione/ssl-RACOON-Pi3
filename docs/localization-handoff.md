@@ -1,8 +1,39 @@
 # RACOON 自己位置推定 — 現況と今後
 
 **対象読者**: この作業を引き継ぐ人（人間・AI を問わず）
-**最終更新**: 2026-09-13
+**最終更新**: 2026-09-23
 **ブランチ**: `feat/self-localization`
+
+> ## 2026-09-23 の更新 — 先に読むこと
+>
+> 実機の軌道追従 PoC (`Trajectory POC Log.md`) とロボットの 3D モデル (`Robot_V2.step`) が入り、
+> **この文書の前提のうち 4 つが変わった**。経緯と根拠は
+> [`self-localization-research-20260923.md`](./self-localization-research-20260923.md) にある。
+>
+> | この文書の記述 | 2026-09-23 時点 |
+> |---|---|
+> | 「実機では一度も動かしていない」(§0) | PoC で**実機ログのリプレイまで済んでいる**。機体パラメータは同定済みで、既定値に入れた (符号は全輪 −1。**以前の既定 +1 は実機と逆で、推定は最初から壊れていた**) |
+> | 「vision の雑音 5 mm / 0.5°」(未計測) | **実測 0.2〜0.4 mm / 0.25〜0.32°、約 116 Hz**。既定値を置き換えた |
+> | 「片道遅延の定数分は原理的に分離できない」(§5.2) | **車輪という独立した速度源があれば相互相関で測れる**。推定器を実装した (合成データで ±1 ms) |
+> | 「車輪雑音 0.01 rad/s」 | **実測 0.3 rad/s 相当**。速度に比例する分 (オムニ車輪の polygon 効果) を分けて持つようにした |
+>
+> **新しく入ったもの**: 冗長残差の閉形式 / 車輪だけの幾何較正 / 機体パラメータのオンライン較正 /
+> `PredictAhead` / 指令遅れと vision 遅延の推定 / ZUPT / 適応 R / ジャイロ経路 / RTS スムーザ /
+> `cmd/loc_replay`。数字は研究文書 §5 にまとめた。
+>
+> **旧推定器との比較**: `loc_replay -dropout` が `reports/localization-dropout.txt` と同じ手順を
+> 再現する。同じ実機ログで比べると**平均 3.0 → 4.0 mm、最大 9.7 → 8.4 mm で、有意な差は無い**
+> (研究文書 §5.1.1)。窓が 0.3 s しかなく両者が分かれる条件になっていないため。
+> **0.5〜2 s の欠落を含むログが要る。**
+>
+> **決着した**: CAD (±60°) と実機の当てはめ (55.4°) は**両方正しい**。
+> `Robot_V2.step` は現行の Rock5A 機体そのもので (2026-09-23 確認)、幾何は CAD どおり厳密。
+> 一方 **オドメトリに使うべき「有効値」は 55〜56° / アーム 72 mm** で、オムニ車輪の
+> ローラのコンプライアンスと滑り (自由方向の約 9% が車輪回転に漏れる) によるずれである。
+> 文献でいう effective kinematic parameters。研究文書 §2.5 / §2.6。
+>
+> **フィルタには有効値 (`DefaultGeometry`)、CAD (`CADGeometry`) は検算と歯止めに使う。**
+> CAD を読んで既定値を「直す」と `cmd/loc_replay` の実データテストが落ちる。
 
 ---
 
@@ -69,6 +100,7 @@ STM から届く 4 輪速度と、SSL-Vision からロボットへ直送され�
 | `internal/locsim` | **検証ハーネス。** 解析軌道、センサ合成、RMSE / NEES 評価 | **なし** |
 | `internal/locadapter` | vision 受信、SPI 記録、加振ドライバ | **なし** |
 | `cmd/loc_ident` | MCAP から機体パラメータを同定する CLI | **なし** |
+| `cmd/loc_replay` | 実機ログを推定器へ流し直し、設定を振って比べる CLI (2026-09-23 追加) | **なし** |
 
 **推定にかかわるパッケージにはビルドタグを一切付けていない。**
 既存の `internal/link` `internal/pi4` `internal/rock5a` は `//go:build pi4 || rock5a` が付いていて
@@ -102,7 +134,7 @@ STM から届く 4 輪速度と、SSL-Vision からロボットへ直送され�
 | `locadapter/vision_multicast.go` | `locadapter/vision.go` |
 | `locadapter/sensor_spi.go` | `locadapter/spi_recorder.go` |
 | **`locadapter/sink_raven.go`** | **無い。** P6（指令プロトコル待ち） |
-| **`locadapter/replay.go` / `cmd/loc_replay`** | **無い。** §6.2 の最優先項目 |
+| `locadapter/replay.go` / `cmd/loc_replay` | **`cmd/loc_replay` として実装済み** (2026-09-23)。MCAP を直接読むので `locadapter` 側は要らなかった |
 
 ---
 

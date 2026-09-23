@@ -167,3 +167,92 @@ type CommandRecord struct {
 	Chip    uint8 `json:"chip"`
 	Info    uint8 `json:"info_bits"`
 }
+
+// EstimateRecord は推定器の出力 1 周期ぶん (/est/state)。
+//
+// **単位をフィールド名に埋める** (計画 §6.1)。RAVEN 内部と揃えて距離は mm。
+type EstimateRecord struct {
+	// StampNs は推定が指す時刻 (ロボットの単調時計)。
+	StampNs int64 `json:"stamp_ns"`
+
+	XMm          float64 `json:"x_mm"`
+	YMm          float64 `json:"y_mm"`
+	ThetaRad     float64 `json:"theta_rad"`
+	VxMmS        float64 `json:"vx_mm_s"`
+	VyMmS        float64 `json:"vy_mm_s"`
+	OmegaRadS    float64 `json:"omega_rad_s"`
+	SlipXMmS     float64 `json:"slipX_mm_s"`
+	SlipYMmS     float64 `json:"slipY_mm_s"`
+	GyroBiasRadS float64 `json:"gyroBias_rad_s"`
+
+	// 共分散 [x, y, theta] の標準偏差。生の共分散より読みやすい。
+	SigmaXMm      float64 `json:"sigmaX_mm"`
+	SigmaYMm      float64 `json:"sigmaY_mm"`
+	SigmaThetaRad float64 `json:"sigmaTheta_rad"`
+
+	// 機体パラメータのオンライン較正。**収束値そのものが幾何の答えを指す**
+	// (docs/self-localization-research-20260923.md §4.1)。
+	TransScale   float64 `json:"transScale"`
+	RotScale     float64 `json:"rotScale"`
+	AngleBiasRad float64 `json:"angleBias_rad"`
+	ParamsFrozen bool    `json:"paramsFrozen"`
+
+	// WheelResidualRadS は 4 輪の冗長残差。滑りが無く幾何が正しければ 0。
+	// **推定に依存しない検査**である (研究 §2.4)。
+	WheelResidualRadS float64 `json:"wheelResidual_rad_s"`
+	// Stationary は停止判定 (ZUPT が効いている)。
+	Stationary bool `json:"stationary"`
+
+	SinceVisionMs float64 `json:"sinceVision_ms"`
+	Health        string  `json:"health"`
+}
+
+// InnovationRecord は 1 回の観測更新の残差 (/est/innovation)。
+//
+// **なぜ効かなかったかを後から追えるようにするため**に残す (計画 §9)。
+type InnovationRecord struct {
+	StampNs int64 `json:"stamp_ns"`
+	// Kind は "wheel" / "vision" / "gyro" / "zupt"。
+	Kind string `json:"kind"`
+	Dim  int    `json:"dim"`
+	// Innovation は残差 (次元ぶんだけ意味がある)。
+	Innovation []float64 `json:"innovation"`
+	// Normalized は sqrt(nu^T S^-1 nu)。vision なら二乗の平均が 3 になるのが正しい。
+	Normalized float64 `json:"normalized"`
+	// HuberWeight は 1 なら減衰していない。
+	HuberWeight float64 `json:"huberWeight"`
+	// RScale は適応 R が公称値の何倍か (vision のみ)。
+	RScale float64 `json:"rScale"`
+	// Applied は更新が実際に当たったか。
+	Applied bool `json:"applied"`
+}
+
+// EstimatorStatsRecord は推定器の累積統計 (/est/timing に相乗り)。
+//
+// **静かに壊れる失敗を見えるようにするため**に出す。実機ログで
+// 「車輪の更新が 710 周期中 0 回」という事故が実際に起きている。
+type EstimatorStatsRecord struct {
+	WheelUpdates      int64 `json:"wheelUpdates_count"`
+	VisionUpdates     int64 `json:"visionUpdates_count"`
+	GyroUpdates       int64 `json:"gyroUpdates_count"`
+	ZuptUpdates       int64 `json:"zuptUpdates_count"`
+	WheelTooOld       int64 `json:"wheelTooOld_count"`
+	VisionTooOld      int64 `json:"visionTooOld_count"`
+	VisionFuture      int64 `json:"visionFuture_count"`
+	VisionDropped     int64 `json:"visionDropped_count"`
+	Replays           int64 `json:"replays_count"`
+	Resets            int64 `json:"resets_count"`
+	Collisions        int64 `json:"collisions_count"`
+	SlipDetections    int64 `json:"slipDetections_count"`
+	ParamFrozenCycles int64 `json:"paramFrozenCycles_count"`
+	HuberDownweights  int64 `json:"huberDownweights_count"`
+	// VisionNIS はイノベーションの正規化二乗の平均。**3.0 が正しい。**
+	// 真値が要らないので実機で Q と R を決めるのはこれを見る。
+	VisionNIS float64 `json:"visionNIS"`
+	// SlipRate は冗長残差がスリップと判定した割合。0.5 超が続くなら幾何を疑う。
+	SlipRate float64 `json:"slipRate"`
+	// WheelNoiseScale は実測の残差 / 雑音モデルの予測。1.0 が正しい。
+	WheelNoiseScale float64 `json:"wheelNoiseScale"`
+	// LoopNs は 1 周期の推定にかかった時間。
+	LoopNs int64 `json:"loop_ns"`
+}
