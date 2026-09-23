@@ -44,6 +44,7 @@ var speeds = []int{100_000, 500_000, 1_000_000, 2_000_000}
 func main() {
 	loopback := flag.Bool("loopback", false, "手順 0: MOSI(PIN_19) と MISO(PIN_21) を線で繋いだ状態で Pi 自身を試す")
 	led := flag.Bool("led", false, "手順 3: 指令受信のビットを立てて送り続ける (速度 0。メインボードの LED2 を見る)")
+	blink := flag.Float64("blink", 0, "手順 2: N 秒間、1 秒ごとに指令受信ビットを on/off して LED2 を意図的に点滅させる")
 	txsweep := flag.Bool("txsweep", false, "手順 5: 送信側を 0-7 ビットずらしながらドリブラを回し、どれで噛み合うかを見る")
 	align := flag.Int("align", 0, "手順 1c: N 回ぶん、毎フレームのビットずれ量を測って安定しているか見る")
 	raw := flag.Int("raw", 0, "手順 1b: 1 回の転送で N バイト連続で読んで、そのまま 16 進で出す (解析用)")
@@ -62,6 +63,8 @@ func main() {
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
 	switch {
+	case *blink > 0:
+		runBlink(*frameSize, *blink, sig)
 	case *txsweep:
 		runTxSweep(*frameSize, *dribble, sig)
 	case *align > 0:
@@ -398,6 +401,69 @@ func runTxSweep(frameSize, dribble int, sig chan os.Signal) {
 	fmt.Println("=== 判定 ===")
 	fmt.Println("  回った番号があった → ビットずれが原因だと確定。ファーム側で NSS を直す。")
 	fmt.Println("  どれでも回らなかった → 下りは別の理由で届いていない。手順 2 (LED2) へ。")
+}
+
+// runBlink は 1 秒ごとに is_signal_received を立てたり落としたりする。
+//
+// ファーム (main_mode.c) では LED2 がこのビットをそのまま映すので、
+// **こちらの合図どおりに点滅する LED があれば、それが LED2 で、下りは届いている**。
+// 基板上のどれが LED2 か分からなくても判定できるのが狙い。
+// 生存表示 (heart_beat) はゆっくり明滅し続けるだけなので、1 秒の点滅とは区別できる。
+//
+// 速度は 0 のままなので車輪は回らない。
+func runBlink(frameSize int, sec float64, sig chan os.Signal) {
+	port, conn, err := open(1_000_000, spi.Mode0)
+	if err != nil {
+		fail("SPI を開けない: %v", err)
+	}
+	defer port.Close()
+
+	fmt.Printf("手順 2: %.0f 秒間、1 秒ごとに LED2 を点滅させる (速度 0。車輪は回らない)\n", sec)
+	fmt.Println("  基板の LED をひとつずつ見て、下の「点ける/消す」に合わせて動くものを探すこと。")
+	fmt.Println("  ゆっくり明滅し続けるものは生存表示なので違う。")
+	fmt.Println()
+
+	// 消す側は 0x00 (非常停止も立てない)。立てるのは指令受信ビットだけ。
+	send := func(info byte) {
+		conn.Tx(txFrame(frameSize, 0, 0, 0, 0, info), make([]byte, frameSize))
+	}
+	defer func() {
+		for i := 0; i < 10; i++ {
+			send(infoEmgStop)
+			time.Sleep(8 * time.Millisecond)
+		}
+		fmt.Println("止めた")
+	}()
+
+	deadline := time.Now().Add(time.Duration(sec * float64(time.Second)))
+	on := true
+	for time.Now().Before(deadline) {
+		if on {
+			fmt.Println("  点ける")
+		} else {
+			fmt.Println("  消す")
+		}
+		info := byte(0x00)
+		if on {
+			info = infoSignalReceived
+		}
+		end := time.Now().Add(time.Second)
+		for time.Now().Before(end) {
+			select {
+			case <-sig:
+				fmt.Println("signal: 止めます")
+				return
+			default:
+			}
+			send(info)
+			time.Sleep(8 * time.Millisecond)
+		}
+		on = !on
+	}
+	fmt.Println()
+	fmt.Println("=== 判定 ===")
+	fmt.Println("  合図どおりに点滅した LED がある → 下りは届いている。原因はもっと後ろ。")
+	fmt.Println("  どの LED も変わらない → 下りが届いていない。MOSI (PIN_19) の配線か STM の受信側。")
 }
 
 // ---- 手順 1-2: MISO の国勢調査 ---------------------------------------------

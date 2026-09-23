@@ -84,7 +84,22 @@ STM が返す中身には必ず 0 のバイトが混ざるので、**十分に�
 
 ## 手順 2: 下り (Pi → STM) は届いているか — LED2 を見る
 
-メインボードの LED2 は `is_signal_received` を映す。速度 0 のまま送り続けて目で見る。
+メインボードの LED2 (**STM32 の PB5**。LED0 = PB9、LED1 = PB8) は
+`is_signal_received` をそのまま映す (`src/mode/main_mode.c`)。
+
+**どれが LED2 か分からなくても判定できるよう、こちらから点滅させる。**
+
+```
+/root/trajpoc/spi_diag -blink 20
+```
+
+1 秒ごとに `is_signal_received` を立てたり落としたりする。端末に「点ける/消す」と出るので、
+**その合図どおりに点滅する LED を探す**。見つかれば下りは届いている。
+
+> 生存表示 (`heart_beat`、TIM1 CH1 の PWM) はゆっくり明滅し続けるだけなので別物。
+> 「オレンジがゆっくり点滅している」はたいていこちら。
+
+合図と無関係にただ送り続けたいときは:
 
 ```
 /root/trajpoc/spi_diag -led -sec 20
