@@ -355,7 +355,7 @@ func buildStatusResponse() statusResponse {
 		RobotID:                robotID,
 		ConnectionState:        connectionStateName(connState),
 		IsNewRobot:             state.IsNewRobot,
-		Volt:                   float32(state.Recvdata.Volt) / 10.0,
+		Volt:                   float32(state.BatteryVolts),
 		IsDetectPhotoSensor:    detectPhotoSensor,
 		IsDetectDribblerSensor: detectDribblerSensor,
 		IsNewDribbler:          isNewDribbler,

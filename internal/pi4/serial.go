@@ -54,6 +54,8 @@ func processSerialCommunication(port serial.Port) {
 	recvbuf := waitForPreambleAndReceive(port)
 
 	state.Recvdata = parseRecvBuf(recvbuf)
+	// 旧基板 (Pi 4B の機体) は 0.1 V/LSB のまま。
+	state.BatteryVolts = float64(state.Recvdata.Volt) * 0.1
 
 	state.FlWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.FlWheelSpeed)
 	state.BlWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.BlWheelSpeed)
@@ -72,7 +74,7 @@ func processSerialCommunication(port serial.Port) {
 	if state.DebugSerial {
 		log.Printf("[Serial RX] Raw: % 02X", recvbuf)
 		log.Printf("[Serial RX] Volt: %d (%.1fV), SensorInfo: 0b%08b, CapPower: %d, Footer: 0x%02X",
-			state.Recvdata.Volt, float32(state.Recvdata.Volt)*0.1, state.Recvdata.SensorInformation, state.Recvdata.CapPower, state.Recvdata.Footer)
+			state.Recvdata.Volt, state.BatteryVolts, state.Recvdata.SensorInformation, state.Recvdata.CapPower, state.Recvdata.Footer)
 		log.Printf("[Serial RX] Wheel(raw) FL: %d, BL: %d, BR: %d, FR: %d",
 			state.Recvdata.FlWheelSpeed, state.Recvdata.BlWheelSpeed, state.Recvdata.BrWheelSpeed, state.Recvdata.FrWheelSpeed)
 		log.Printf("[Serial RX] Wheel(m/s) FL: %.3f, BL: %.3f, BR: %.3f, FR: %.3f",

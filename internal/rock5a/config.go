@@ -30,12 +30,31 @@ type spiLayout struct {
 	FrameSize   int
 	PayloadSize int
 	HasIMU      bool
+	// VoltPerLSB は電圧のバイトの倍率 [V/LSB]。
+	//
+	// 旧: 0.1 V/LSB (×10)。**255 を超える 26 V 以上で一周して 0.4 V などになる不具合があった**
+	// (uint8 のまま ×10 していた。実際に満充電の電池で 26 V → 4、27 V → 14 になった)。
+	// 新 (V26_2 の修正版): 0.2 V/LSB (×5) で 51 V まで表せる。
+	VoltPerLSB float64
 }
 
 var (
-	spiLayoutV1 = spiLayout{Name: "v1 (20B, IMU なし)", FrameSize: 20, PayloadSize: 18}
-	spiLayoutV2 = spiLayout{Name: "v2 (21B, IMU あり)", FrameSize: 21, PayloadSize: 19, HasIMU: true}
+	spiLayoutV1 = spiLayout{Name: "v1 (20B, IMU なし)", FrameSize: 20, PayloadSize: 18, VoltPerLSB: 0.1}
+	spiLayoutV2 = spiLayout{Name: "v2 (21B, IMU あり)", FrameSize: 21, PayloadSize: 19, HasIMU: true, VoltPerLSB: 0.2}
 )
+
+// batteryVolts は電圧のバイトをボルトに直す。
+//
+// 21 バイトのフレームには、倍率を直す前の中間のファーム (×10 のまま IMU を載せた版) もある。
+// こちらの電池は 14〜30 V なので、0.2 V/LSB で読んで 40 V を超えたら、その中間の版だと見なして
+// 0.1 V/LSB で読み直す (どちらの版でも正しい値になる)。
+func batteryVolts(l spiLayout, raw uint8) float64 {
+	v := float64(raw) * l.VoltPerLSB
+	if v > 40 {
+		return float64(raw) * 0.1
+	}
+	return v
+}
 
 // IMU の生値 → SI の倍率 (SPI_PROTOCOL.md §2: 加速度 ×1000 [g]、ヨーの角速度 ×900 [rad/s]、姿勢角 ×10000 [rad])。
 const (

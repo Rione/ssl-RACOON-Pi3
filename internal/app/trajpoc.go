@@ -172,10 +172,10 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if v := state.Recvdata.Volt; v < uint8(state.BatteryLowThreshold) {
-		fail("battery too low: %.1f V (< %.1f V)", float64(v)/10, float64(state.BatteryLowThreshold)/10)
+	if state.BatteryVolts < state.BatteryLowVolts {
+		fail("battery too low: %.1f V (< %.1f V)", state.BatteryVolts, state.BatteryLowVolts)
 	}
-	log.Printf("[TRAJ] STM ok, battery %.1f V", float64(state.Recvdata.Volt)/10)
+	log.Printf("[TRAJ] STM ok, battery %.1f V", state.BatteryVolts)
 
 	// 3. 走らせる。速度の差し替え (この時点では 0) を先に登録してから非常停止を解く。
 	//    逆順だと、解いた瞬間に差し替え前の速度が流れる隙間ができる。

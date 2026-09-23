@@ -168,3 +168,25 @@ func TestSendFrameMatchesTheProtocol(t *testing.T) {
 		}
 	}
 }
+
+// 電圧の倍率。SPI_PROTOCOL.md: 旧 0.1 V/LSB (×10、26 V 以上で一周する不具合)、
+// 修正版 0.2 V/LSB (×5)。21 バイトのフレームには倍率を直す前の中間の版もあるので、
+// 40 V を超える読みは中間の版として 0.1 V/LSB で読み直す。
+func TestBatteryVoltsScale(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		l    spiLayout
+		raw  uint8
+		want float64
+	}{
+		{"v1 24.0V", spiLayoutV1, 240, 24.0},
+		{"v2 24.0V (0.2V/LSB)", spiLayoutV2, 120, 24.0},
+		{"v2 25.4V", spiLayoutV2, 127, 25.4},
+		{"v2 でも古い倍率のファーム (raw 240 は 48V ではなく 24V)", spiLayoutV2, 240, 24.0},
+		{"v2 空 (0)", spiLayoutV2, 0, 0},
+	} {
+		if got := batteryVolts(c.l, c.raw); math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("%s: raw %d -> %.2f V, want %.2f V", c.name, c.raw, got, c.want)
+		}
+	}
+}

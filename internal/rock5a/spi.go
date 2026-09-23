@@ -115,6 +115,7 @@ func processSPICommunication(conn spi.Conn) {
 		state.BrWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.BrWheelSpeed)
 		state.FrWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.FrWheelSpeed)
 		applyImu(state.Recvdata)
+		state.BatteryVolts = batteryVolts(curLayout, state.Recvdata.Volt)
 
 		if state.DebugWheelGraph {
 			wheelgraph.Record(
@@ -133,7 +134,7 @@ func processSPICommunication(conn spi.Conn) {
 		} else {
 			log.Printf("[SPI RX] Raw: % 02X", rx[1:1+SPIRecvSize])
 			log.Printf("[SPI RX] Volt: %d (%.1fV), SensorInfo: 0b%08b, CapPower: %d",
-				state.Recvdata.Volt, float32(state.Recvdata.Volt)*0.1, state.Recvdata.SensorInformation, state.Recvdata.CapPower)
+				state.Recvdata.Volt, state.BatteryVolts, state.Recvdata.SensorInformation, state.Recvdata.CapPower)
 			log.Printf("[SPI RX] Wheel(raw) FL: %d, BL: %d, BR: %d, FR: %d",
 				state.Recvdata.FlWheelSpeed, state.Recvdata.BlWheelSpeed, state.Recvdata.BrWheelSpeed, state.Recvdata.FrWheelSpeed)
 			log.Printf("[SPI RX] Wheel(m/s) FL: %.3f, BL: %.3f, BR: %.3f, FR: %.3f",

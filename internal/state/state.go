@@ -8,8 +8,13 @@ import (
 )
 
 const (
+	// 生の値で持っていた古い閾値 (0.1 V/LSB 前提)。判定は BatteryVolts と下の V 版で行う。
 	BatteryLowThreshold      = 140
 	BatteryCriticalThreshold = 135
+
+	// 電圧の閾値 [V]。STM の送り方 (倍率) が世代で違うので、生の値ではなくボルトで比べる。
+	BatteryLowVolts      = float64(BatteryLowThreshold) / 10
+	BatteryCriticalVolts = float64(BatteryCriticalThreshold) / 10
 
 	Port          = ":9191"
 	UDPRecvPort   = 20011
@@ -100,6 +105,10 @@ var (
 	BrWheelSpeedRadS float32
 	FrWheelSpeedRadS float32
 )
+
+// BatteryVolts は STM から届いた電圧 [V]。板ごとの倍率を当てはめた後の値で、
+// 生の Recvdata.Volt ではなくこちらで判定する (SPI_PROTOCOL.md の倍率が世代で違うため)。
+var BatteryVolts float64
 
 // IMU の SI に直した値 (SPI の周期ごとに更新。IMU の無いファームでは 0 のまま)。
 // ImuValid が false のときは中身を使わないこと。

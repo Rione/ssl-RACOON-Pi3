@@ -213,14 +213,14 @@ func RunGPIO(done <-chan struct{}) {
 	printDIPStatus()
 
 	ledInterval := ledBlinkNormal
-	alarmVoltage := state.BatteryLowThreshold
+	alarmVoltage := state.BatteryLowVolts
 
 	for {
 		select {
 		case <-done:
 			return
 		default:
-			if state.Recvdata.Volt <= uint8(alarmVoltage) {
+			if state.BatteryVolts <= alarmVoltage {
 				handleBatteryAlarm(led2, button1, &alarmVoltage)
 			} else {
 				ledInterval = handleNormalOperation(led, button1, button2, ledInterval)
@@ -300,11 +300,11 @@ func printDIPStatus() {
 	fmt.Println("HEX:", int(hex))
 }
 
-func handleBatteryAlarm(led2, button1 *gpio.GPIO, alarmVoltage *int) {
+func handleBatteryAlarm(led2, button1 *gpio.GPIO, alarmVoltage *float64) {
 	log.Println("BATTERY ALARM")
 
 	for {
-		if state.Recvdata.Volt <= uint8(state.BatteryCriticalThreshold) {
+		if state.BatteryVolts <= state.BatteryCriticalVolts {
 			RingBuzzer(25, 5000*time.Millisecond, 0)
 			continue
 		}
@@ -318,7 +318,7 @@ func handleBatteryAlarm(led2, button1 *gpio.GPIO, alarmVoltage *int) {
 
 		if isPressed(button1) || state.AlarmIgnore {
 			log.Println("BATTERY ALARM IGNORED")
-			*alarmVoltage = state.BatteryCriticalThreshold
+			*alarmVoltage = state.BatteryCriticalVolts
 			playAlarmDismissSound()
 			break
 		}
