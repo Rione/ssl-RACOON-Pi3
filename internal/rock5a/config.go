@@ -19,9 +19,12 @@ const (
 )
 
 // STM のフレームの形。ファームの世代で長さが違うので、通信しながら見分ける (spi.go)。
+// 仕様は ssl-Circuit の 2026/Firmware/MainBoard/MainBoard_V26_2/docs/SPI_PROTOCOL.md。
 //
-//	v1 (MainBoard_V26_1_1 まで): 21 バイト未満。ヘッダ + 18 + フッタ = 20。12〜18 は 0 埋め
+//	v1 (MainBoard_V26_1_1 まで): ヘッダ + 18 + フッタ = 20。12〜18 は 0 埋め
 //	v2 (MainBoard_V26_2 から):   ヘッダ + 19 + フッタ = 21。12〜19 に IMU (加速度 XY・ヨーの角速度・姿勢角)
+//
+// 上り・下りとも同じ長さで揃える。下りの中身は 18 バイトのままで、v2 では 19 バイト目が予備 (0 を送る)。
 type spiLayout struct {
 	Name        string
 	FrameSize   int
@@ -34,7 +37,7 @@ var (
 	spiLayoutV2 = spiLayout{Name: "v2 (21B, IMU あり)", FrameSize: 21, PayloadSize: 19, HasIMU: true}
 )
 
-// IMU の生値 → SI の倍率 (ssl-Circuit の MainBoard_V26_2 src/unit/robot.c と同じ)。
+// IMU の生値 → SI の倍率 (SPI_PROTOCOL.md §2: 加速度 ×1000 [g]、ヨーの角速度 ×900 [rad/s]、姿勢角 ×10000 [rad])。
 const (
 	spiAccelPerLSBG     = 0.001       // [g]     1 LSB = 1 mg
 	spiYawRatePerLSBRad = 1.0 / 900.0 // [rad/s]

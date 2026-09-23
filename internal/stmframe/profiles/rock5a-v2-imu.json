@@ -14,10 +14,10 @@
     { "name": "wheelBR", "offset": 8, "type": "i16le", "scale": 0.01, "unit": "rad/s", "timeOffsetMs": -4.0 },
     { "name": "wheelFR", "offset": 10, "type": "i16le", "scale": 0.01, "unit": "rad/s", "timeOffsetMs": -4.0 },
 
-    { "name": "accelX", "offset": 12, "type": "i16le", "scale": 0.00980665, "unit": "m/s^2", "timeOffsetMs": -5.0 },
-    { "name": "accelY", "offset": 14, "type": "i16le", "scale": 0.00980665, "unit": "m/s^2", "timeOffsetMs": -5.0 },
-    { "name": "gyroZ", "offset": 16, "type": "i16le", "scale": 0.001111111, "unit": "rad/s", "timeOffsetMs": -5.0 },
-    { "name": "yawAngle", "offset": 18, "type": "i16le", "scale": 0.0001, "unit": "rad", "timeOffsetMs": -5.0 }
+    { "name": "accelX", "offset": 12, "type": "i16le", "scale": 0.00980665, "unit": "m/s^2", "timeOffsetMs": -4.8 },
+    { "name": "accelY", "offset": 14, "type": "i16le", "scale": 0.00980665, "unit": "m/s^2", "timeOffsetMs": -4.8 },
+    { "name": "gyroZ", "offset": 16, "type": "i16le", "scale": 0.001111111, "unit": "rad/s", "timeOffsetMs": -4.8 },
+    { "name": "yawAngle", "offset": 18, "type": "i16le", "scale": 0.0001, "unit": "rad", "timeOffsetMs": -4.8 }
   ],
 
   "reserved": []

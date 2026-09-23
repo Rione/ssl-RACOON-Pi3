@@ -139,3 +139,32 @@ func TestLayoutProbeSwitchesAndSettles(t *testing.T) {
 		t.Error("must stay on v2 while frames are valid")
 	}
 }
+
+// 下り (Pi → STM) のフレームの形。SPI_PROTOCOL.md §4: 中身は 18 バイトのままで、
+// v2 では 19 バイト目が予備 (0 を送る)。長さは上りと揃える。
+func TestSendFrameMatchesTheProtocol(t *testing.T) {
+	payload := make([]byte, 18)
+	for i := range payload {
+		payload[i] = byte(i + 1)
+	}
+	for _, c := range []struct {
+		l    spiLayout
+		size int
+	}{{spiLayoutV1, 20}, {spiLayoutV2, 21}} {
+		f := wrapSPIFrame(c.l, payload)
+		if len(f) != c.size {
+			t.Errorf("%s: %d bytes, want %d", c.l.Name, len(f), c.size)
+			continue
+		}
+		if f[0] != SPIFrameHeader || f[c.size-1] != SPIFrameFooter {
+			t.Errorf("%s: header/footer: % x", c.l.Name, f)
+		}
+		// status (中身の 18 バイト目) はフレーム位置 18 に来る
+		if f[18] != payload[17] {
+			t.Errorf("%s: status byte landed at the wrong offset: % x", c.l.Name, f)
+		}
+		if c.l.HasIMU && f[19] != 0 {
+			t.Errorf("v2: frame byte 19 must stay reserved (0), got %02x", f[19])
+		}
+	}
+}

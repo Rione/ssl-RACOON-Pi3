@@ -32,8 +32,11 @@ var (
 )
 
 // spiLayoutProbeCycles は、この回数だけ続けてフレームが取れなければ形を切り替える。
-// 8 ms 周期なので 0.4 s。起動直後の数フレームの取りこぼしでは切り替わらない長さにしてある。
-const spiLayoutProbeCycles = 50
+//
+// 8 ms 周期なので約 1.2 s。**STM 側は通信が 750 ms 進まないと強制的に再同期する**
+// (SPI_PROTOCOL.md §1)。長さが噛み合っていない間は STM もずれるので、こちらの切り替えが
+// それより速いと、STM が立て直す前に形を変えてしまい、いつまでも噛み合わない。
+const spiLayoutProbeCycles = 150
 
 func RunSPI(done <-chan struct{}, myID uint32) {
 	if _, err := host.Init(); err != nil {
