@@ -26,7 +26,38 @@ ssh root@<ロボット> 'cat > /root/trajpoc/spi_diag && chmod +x /root/trajpoc/
 
 ---
 
-## 手順 0: Rock5A 自身は正常か (疑わしいときだけ)
+## 手順 0: 他に SPI を使っているものがいないか (毎回やる)
+
+**本番サービスを止めてから試験すること。**
+
+```
+systemctl stop ssl-racoon.service
+ls -l /proc/*/fd/* 2>/dev/null | grep spidev    # 何も出なければよい
+```
+
+止めずに試験を流すと、**2 つのマスターが同じ線に指令を流す**ことになる。
+STM は両方のフレームを受け取ってしまい、こちらの指令は本番サービスの指令
+(RAVEN 未接続なら非常停止) に上書きされる。結果として
+
+- LED2 が点かない
+- 車輪が回らない
+- 通信自体は正常に見える
+
+という、**「下りだけ壊れている」ようにしか見えない状態**になる。
+`spi_diag` は起動時にこれを検査して、他にいれば止まる。
+
+> 2026-09-23、これで何時間も遠回りした。サービスは 6 GHz Wi-Fi が上がってから
+> 自動で起きるので、**再起動のたびに勝手に復活する**。試験の前に必ず確認すること。
+> 終わったら `systemctl start ssl-racoon.service` で戻す。
+
+ブザーが鳴りっぱなしなのも、たいていこのサービスの警告音:
+
+```
+echo 0 > /sys/class/pwm/pwmchip1/pwm0/duty_cycle
+echo 0 > /sys/class/pwm/pwmchip1/pwm0/enable
+```
+
+## 手順 0b: Rock5A 自身は正常か (疑わしいときだけ)
 
 PIN_19 (MOSI) と PIN_21 (MISO) をジャンパ線で繋いで実行する。
 

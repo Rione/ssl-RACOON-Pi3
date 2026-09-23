@@ -18,7 +18,10 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -59,6 +62,7 @@ func main() {
 	if _, err := os.Stat(devPath); err != nil {
 		fail("%s が無い: %v\n  → Pi 側の SPI が有効になっていない (overlay を確認)", devPath, err)
 	}
+	warnOtherSPIUsers()
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
@@ -93,6 +97,38 @@ func open(speed int, mode spi.Mode) (spi.PortCloser, spi.Conn, error) {
 		return nil, nil, err
 	}
 	return port, conn, nil
+}
+
+// warnOtherSPIUsers は自分以外に SPI を開いているプロセスがいないか調べる。
+//
+// 本番サービスが動いたまま試験を流すと、2 つのマスターが同じ線に指令を流すことになる。
+// STM はどちらのフレームも受け取ってしまうので、こちらの指令は相手の指令に上書きされ、
+// 「下りが届かない」ように見える。2026-09-23 に実際これで何時間も遠回りした。
+func warnOtherSPIUsers() {
+	procs, _ := filepath.Glob("/proc/[0-9]*/fd/*")
+	self := os.Getpid()
+	seen := map[string]bool{}
+	for _, fd := range procs {
+		if tgt, err := os.Readlink(fd); err != nil || tgt != devPath {
+			continue
+		}
+		parts := strings.Split(fd, "/")
+		if len(parts) < 3 {
+			continue
+		}
+		pid := parts[2]
+		if pid == strconv.Itoa(self) || seen[pid] {
+			continue
+		}
+		seen[pid] = true
+		name, _ := os.ReadFile("/proc/" + pid + "/comm")
+		fmt.Printf("NG  他のプロセスが %s を開いている: pid %s (%s)\n", devPath, pid, strings.TrimSpace(string(name)))
+	}
+	if len(seen) > 0 {
+		fmt.Println("    2 つのマスターが同じ線に指令を流すと、こちらの指令は相手に上書きされる。")
+		fmt.Println("    先に止めること:  systemctl stop ssl-racoon.service")
+		os.Exit(1)
+	}
 }
 
 func fail(format string, a ...any) {
