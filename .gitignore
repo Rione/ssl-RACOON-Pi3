@@ -17,3 +17,6 @@ __pycache__/
 /main
 /kick_test
 /trajpoc-results/
+
+# Local toolchain and verification output
+/.cache/
