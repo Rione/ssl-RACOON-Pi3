@@ -150,6 +150,10 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 	}); err != nil {
 		fail("wheel check: %v", err)
 	}
+	// IMU (MainBoard_V26_2 以降) も記録する。制御にはまだ使わない。
+	driver.SetImuSource(func() (float64, float64, float64, bool) {
+		return state.ImuYawRateRadS, state.ImuAccelXMS2, state.ImuAccelYMS2, state.ImuValid
+	})
 
 	log.Printf("[TRAJ] waiting for vision of %s %d ...", team, visionID)
 	deadline := time.Now().Add(5 * time.Second)

@@ -143,23 +143,28 @@ func WriteCSV(w io.Writer, samples []Sample) error {
 	if _, err := fmt.Fprintln(w, "t_s,tv_s,vision_age_ms,held,pose_x_mm,pose_y_mm,pose_theta_rad,"+
 		"ref_x_mm,ref_y_mm,ref_theta_rad,ref_vx_mm_s,ref_vy_mm_s,ref_omega_rad_s,"+
 		"cmd_world_vx_mm_s,cmd_world_vy_mm_s,cmd_omega_rad_s,cmd_body_vx_mm_s,cmd_body_vy_mm_s,"+
-		"near_goal,pred_x_mm,pred_y_mm,pred_theta_rad,wheel_fl_rad_s,wheel_bl_rad_s,wheel_br_rad_s,wheel_fr_rad_s"); err != nil {
+		"near_goal,pred_x_mm,pred_y_mm,pred_theta_rad,wheel_fl_rad_s,wheel_bl_rad_s,wheel_br_rad_s,wheel_fr_rad_s,"+
+		"imu_valid,imu_yaw_rate_rad_s,imu_accel_x_m_s2,imu_accel_y_m_s2"); err != nil {
 		return err
 	}
 	for _, s := range samples {
-		held, ng := 0, 0
+		held, ng, imu := 0, 0, 0
+		if s.ImuValid {
+			imu = 1
+		}
 		if s.Held {
 			held = 1
 		}
 		if s.NearGoal {
 			ng = 1
 		}
-		if _, err := fmt.Fprintf(w, "%.4f,%.4f,%.1f,%d,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%d,%.1f,%.1f,%.4f,%.2f,%.2f,%.2f,%.2f\n",
+		if _, err := fmt.Fprintf(w, "%.4f,%.4f,%.1f,%d,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%d,%.1f,%.1f,%.4f,%.2f,%.2f,%.2f,%.2f,%d,%.4f,%.3f,%.3f\n",
 			s.T, s.TV, s.Age*1000, held, s.Pose.X*1000, s.Pose.Y*1000, s.Pose.Theta,
 			s.Ref.Pos.X*1000, s.Ref.Pos.Y*1000, s.Ref.Theta, s.Ref.Vel.X*1000, s.Ref.Vel.Y*1000, s.Ref.YawRate,
 			s.CmdWorld.X*1000, s.CmdWorld.Y*1000, s.CmdOmega, s.CmdBody.X*1000, s.CmdBody.Y*1000,
 			ng, s.Pred.X*1000, s.Pred.Y*1000, s.Pred.Theta,
-			s.Wheels[0], s.Wheels[1], s.Wheels[2], s.Wheels[3]); err != nil {
+			s.Wheels[0], s.Wheels[1], s.Wheels[2], s.Wheels[3],
+			imu, s.ImuYawRate, s.ImuAccelX, s.ImuAccelY); err != nil {
 			return err
 		}
 	}

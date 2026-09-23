@@ -16,6 +16,10 @@ type VisionSource func() (pose localization.Pose2, capture localization.Stamp, o
 // 記録するだけで制御には使わない (スリップの切り分け用、traj-poc-log §5-16)。
 type WheelSource func() [4]float64
 
+// ImuSource は STM から届いた最新の IMU を返す (ヨーの角速度 [rad/s]、機体座標の加速度 [m/s^2])。
+// IMU の無いファームでは ok=false。記録するだけで制御には使わない。
+type ImuSource func() (yawRate, accelX, accelY float64, ok bool)
+
 // Clock は現在の単調時刻を返す。
 type Clock func() localization.Stamp
 
@@ -37,18 +41,20 @@ func (s State) String() string {
 // Sample は 1 周期の記録。T は現在の軌道時刻、TV は vision の撮影時刻での軌道時刻。
 // 誤差は「撮影した瞬間の参照」と比べる (vision の遅れを追従の誤差に混ぜないため)。
 type Sample struct {
-	T, TV    float64
-	Age      float64
-	Capture  localization.Stamp
-	Pose     localization.Pose2
-	Ref      RefSample // TV での参照
-	CmdWorld localization.Vec2
-	CmdOmega float64
-	CmdBody  localization.Vec2
-	Held     bool               // vision が古くて 0 を出した周期
-	Wheels   [4]float64         // その周期に読んだ車輪の回転速度 [rad/s] (FL, BL, BR, FR)
-	NearGoal bool               // 止まり際の √ブレーキ則で指令した周期
-	Pred     localization.Pose2 // そのときのスミス予測の位置 (NearGoal のときだけ)
+	T, TV                            float64
+	Age                              float64
+	Capture                          localization.Stamp
+	Pose                             localization.Pose2
+	Ref                              RefSample // TV での参照
+	CmdWorld                         localization.Vec2
+	CmdOmega                         float64
+	CmdBody                          localization.Vec2
+	Held                             bool               // vision が古くて 0 を出した周期
+	Wheels                           [4]float64         // その周期に読んだ車輪の回転速度 [rad/s] (FL, BL, BR, FR)
+	ImuValid                         bool               // その周期に IMU が読めたか
+	ImuYawRate, ImuAccelX, ImuAccelY float64            // [rad/s], [m/s^2] (機体座標)
+	NearGoal                         bool               // 止まり際の √ブレーキ則で指令した周期
+	Pred                             localization.Pose2 // そのときのスミス予測の位置 (NearGoal のときだけ)
 }
 
 // Driver は link.VelocityOverride を満たし、SPI の周期 (125 Hz) ごとに速度を作る。
@@ -60,6 +66,7 @@ type Driver struct {
 	vision VisionSource
 	now    Clock
 	wheels WheelSource       // nil なら記録も検査もしない
+	imu    ImuSource         // nil なら記録しない
 	check  *wheelVisionCheck // 車輪と vision の食い違いの検査 (wheels があるとき)
 
 	state  State
@@ -100,6 +107,13 @@ func (d *Driver) SetWheelSource(w WheelSource) error {
 	defer d.mu.Unlock()
 	d.wheels, d.check = w, c
 	return nil
+}
+
+// SetImuSource は IMU の読み出しを登録する (記録用)。Arm の前に呼ぶ。
+func (d *Driver) SetImuSource(i ImuSource) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.imu = i
 }
 
 // Arm は現在の vision 姿勢に軌道を貼り付け、StartDelay 後を軌道の t=0 にして走らせる。
@@ -206,6 +220,9 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	}
 
 	s := Sample{T: t, TV: (capture - d.t0).Seconds(), Age: age, Capture: capture, Pose: pose}
+	if d.imu != nil {
+		s.ImuYawRate, s.ImuAccelX, s.ImuAccelY, s.ImuValid = d.imu()
+	}
 	if d.wheels != nil {
 		s.Wheels = d.wheels()
 		// vision が古いときは下の「止まって待つ」に任せる (止まった vision と比べると必ず食い違う)

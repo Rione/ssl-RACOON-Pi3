@@ -85,6 +85,13 @@ type RecvData struct {
 	FrWheelSpeed      int16
 	Footer            uint8
 	Reserved          uint8
+
+	// IMU (MainBoard_V26_2 以降の 21 バイトのフレームだけ。HasIMU が false なら 0)。
+	HasIMU      bool
+	AccelXRaw   int16 // 1 LSB = 1 mg
+	AccelYRaw   int16
+	YawRateRaw  int16 // 900 LSB = 1 rad/s
+	YawAngleRaw int16 // 10000 LSB = 1 rad (STM 側の Madgwick。参考値)
 }
 
 var (
@@ -92,6 +99,16 @@ var (
 	BlWheelSpeedRadS float32
 	BrWheelSpeedRadS float32
 	FrWheelSpeedRadS float32
+)
+
+// IMU の SI に直した値 (SPI の周期ごとに更新。IMU の無いファームでは 0 のまま)。
+// ImuValid が false のときは中身を使わないこと。
+var (
+	ImuValid       bool
+	ImuAccelXMS2   float64 // 機体座標の前後 [m/s^2]
+	ImuAccelYMS2   float64 // 機体座標の左右 [m/s^2]
+	ImuYawRateRadS float64 // ヨーの角速度 [rad/s] (STM 側でバイアスを引いたもの)
+	ImuYawRad      float64 // STM 側の Madgwick の姿勢角 [rad] (参考。制御には使わない)
 )
 
 var IsControlByRobotMode bool
