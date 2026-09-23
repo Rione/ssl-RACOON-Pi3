@@ -5,6 +5,7 @@ package control
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
@@ -54,6 +55,15 @@ type Config struct {
 	HeadingGain  float64
 	MaxSpeed     float64
 	MaxYawRate   float64
+
+	// VelocityLead は先回しの速度を「この時間だけ先」の参照から取る。位置・姿勢の目標は動かさない。
+	//
+	// 指令は出してから効くまで遅れる (実機の計測で約 90 ms: docs/traj-poc-log.md §5-7〜9)。
+	// 遅れたぶん、曲がるときは速度の向きが古いまま効くので、機体は外へ膨らむ。
+	// 先の参照から速度を取ると、効く時刻の向きになって膨らみが消える
+	// (直径 0.6 m・0.4 m/s の円で半径方向のずれ +13.8 mm → ほぼ 0、最良は 80〜90 ms)。
+	// 0 なら先読みしない。位置の目標まで先へずらす形は実機で効果が無かったので入れていない。
+	VelocityLead time.Duration
 }
 
 // Command は現在のロボット姿勢を基準とする速度指令。
@@ -87,6 +97,9 @@ func New(nodes []Node, config Config) (*Controller, error) {
 		config.PositionGain < 0 || config.HeadingGain < 0 || config.MaxSpeed <= 0 || config.MaxYawRate <= 0 {
 		return nil, fmt.Errorf("invalid controller gains or velocity limits")
 	}
+	if config.VelocityLead < 0 {
+		return nil, fmt.Errorf("velocity lead must not be negative")
+	}
 	copyNodes, err := validateNodes(nodes)
 	if err != nil {
 		return nil, err
@@ -115,11 +128,23 @@ func (c *Controller) Calculate(estimate localization.Estimate) (Command, Phase, 
 	}
 	x, y, theta := ref.Pose.X, ref.Pose.Y, ref.Pose.Theta
 
-	v := localization.Vec2{
-		X: ref.VelWorld.X + c.config.PositionGain*(x-estimate.Pose.X),
-		Y: ref.VelWorld.Y + c.config.PositionGain*(y-estimate.Pose.Y),
+	// 先回しの速度だけ「指令が効く頃」の参照から取る (Config.VelocityLead)。
+	// 目標の位置・姿勢は今の時刻のままで、誤差の補正は据え置く。
+	lead := ref
+	if c.config.VelocityLead > 0 {
+		if ahead, aheadPhase := sampleTrajectory(c.nodes, estimate.Stamp.Add(c.config.VelocityLead)); aheadPhase == Tracking {
+			lead = ahead
+		} else {
+			// 軌道の終わりを越える先読みは、終端で止まる計画を先取りして 0 にする。
+			lead.VelWorld, lead.YawRate = localization.Vec2{}, 0
+		}
 	}
-	w := ref.YawRate + c.config.HeadingGain*localization.AngleDiff(theta, localization.WrapAngle(estimate.Pose.Theta))
+
+	v := localization.Vec2{
+		X: lead.VelWorld.X + c.config.PositionGain*(x-estimate.Pose.X),
+		Y: lead.VelWorld.Y + c.config.PositionGain*(y-estimate.Pose.Y),
+	}
+	w := lead.YawRate + c.config.HeadingGain*localization.AngleDiff(theta, localization.WrapAngle(estimate.Pose.Theta))
 	// 有限入力でも演算がオーバーフローした場合は指令を出さない。
 	speed := math.Hypot(v.X, v.Y)
 	if !finite(v.X, v.Y, w, speed) {
