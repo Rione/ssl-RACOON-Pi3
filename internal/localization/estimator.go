@@ -29,9 +29,10 @@ type Estimator struct {
 
 // EstimatorStats は推定器の動作統計。
 type EstimatorStats struct {
-	// WheelUpdates / VisionUpdates は適用した観測の数。
+	// WheelUpdates / VisionUpdates / GyroUpdates は適用した観測の数。
 	WheelUpdates  int64
 	VisionUpdates int64
+	GyroUpdates   int64
 	// VisionTooOld はバッファより古くて捨てた vision 観測の数。
 	//
 	// 無理に取り込むと共分散が壊れるので捨てる。破棄率はメトリクスに出す
@@ -108,7 +109,7 @@ func (e *Estimator) AddWheel(s WheelSample) UpdateInfo {
 		// 最初のサンプルは時刻の基準を決めるだけ。dt が無いと予測できない。
 		e.started = true
 		e.lastStamp = s.Stamp
-		e.pushEntry(s.Stamp, 0, e.f.kin.SlotsToLogical(s.Omega), true)
+		e.pushEntry(bufferEntry{stamp: s.Stamp, wheels: e.f.kin.SlotsToLogical(s.Omega), hasWheels: true})
 		return UpdateInfo{}
 	}
 	dt := s.Stamp.Sub(e.lastStamp).Seconds()
@@ -127,18 +128,45 @@ func (e *Estimator) AddWheel(s WheelSample) UpdateInfo {
 		}
 	}
 	e.lastStamp = s.Stamp
-	e.pushEntry(s.Stamp, dt, logical, true)
+	e.pushEntry(bufferEntry{stamp: s.Stamp, dt: dt, wheels: logical, hasWheels: true})
 	e.guardDivergence()
 	return info
 }
 
 // AddImu は IMU サンプルを取り込む。
 //
-// **現状は何もしない。** 計画 §3.5 の通り STM 側に IMU の実装が存在せず、
-// 観測が届かない。載った時点でジャイロを予測の入力に、加速度計を速度予測に
-// 使うように書き換える (計画 P5)。呼び出し側を後から変えずに済むよう、
-// 入り口だけ先に決めてある。
-func (e *Estimator) AddImu(ImuSample) {}
+// 使うのはジャイロのヨーレートだけで、omega の観測として当てる (eskf_update.go の updateGyro)。
+// 加速度計はまだ使わない (位置には二重積分で効くので、効果を測ってから入れる)。
+// ジャイロが無いファームでは HasGyro が false になり、何もしない。
+func (e *Estimator) AddImu(s ImuSample) UpdateInfo {
+	if !s.HasGyro {
+		return UpdateInfo{}
+	}
+	if !e.started {
+		// 車輪と同じく、最初のサンプルは時刻の基準を決めるだけ。
+		e.started = true
+		e.lastStamp = s.Stamp
+		e.pushEntry(bufferEntry{stamp: s.Stamp, gyro: s.GyroZ, hasGyro: true})
+		return UpdateInfo{}
+	}
+	dt := s.Stamp.Sub(e.lastStamp).Seconds()
+	if dt < 0 {
+		// 時刻が戻った。SPI の順序は崩れないはずなので捨てる。
+		return UpdateInfo{}
+	}
+	e.f.predict(dt)
+	info := e.f.updateGyro(s.GyroZ)
+	if info.Applied {
+		e.stats.GyroUpdates++
+		if info.HuberWeight < 1 {
+			e.stats.HuberDownweights++
+		}
+	}
+	e.lastStamp = s.Stamp
+	e.pushEntry(bufferEntry{stamp: s.Stamp, dt: dt, gyro: s.GyroZ, hasGyro: true})
+	e.guardDivergence()
+	return info
+}
 
 // AddVision は vision の絶対姿勢を取り込む。
 //
@@ -188,7 +216,7 @@ func (e *Estimator) applyVisionAhead(v VisionPose, dt float64) UpdateInfo {
 	e.lastStamp = v.Stamp
 	// 状態と時刻が食い違わないよう、観測時刻でエントリを積む。
 	// 車輪は無いので hasWheels は false。
-	e.pushEntry(v.Stamp, dt, [NumWheels]float64{}, false)
+	e.pushEntry(bufferEntry{stamp: v.Stamp, dt: dt})
 	e.afterVision(v, info)
 	e.guardDivergence()
 	return info
@@ -220,6 +248,9 @@ func (e *Estimator) applyVisionRetro(v VisionPose) UpdateInfo {
 		en := e.buf.at(j)
 		if dt := en.stamp.Sub(prev).Seconds(); dt > 0 {
 			e.f.predict(dt)
+		}
+		if en.hasGyro {
+			e.f.updateGyro(en.gyro)
 		}
 		if en.hasWheels {
 			e.f.updateWheels(en.wheels)
@@ -283,15 +314,10 @@ func (e *Estimator) syncBufferTail() {
 	}
 }
 
-func (e *Estimator) pushEntry(stamp Stamp, dt float64, wheels [NumWheels]float64, has bool) {
-	e.buf.push(bufferEntry{
-		stamp:     stamp,
-		x:         e.f.x,
-		p:         e.f.P,
-		dt:        dt,
-		wheels:    wheels,
-		hasWheels: has,
-	})
+func (e *Estimator) pushEntry(en bufferEntry) {
+	en.x = e.f.x
+	en.p = e.f.P
+	e.buf.push(en)
 }
 
 // guardDivergence は NaN や負の分散を検出したら初期化し直す。
@@ -341,13 +367,14 @@ func hasNaN(p Pose2) bool {
 // Current は現在時刻の推定を返す。
 func (e *Estimator) Current() Estimate {
 	est := Estimate{
-		Stamp:   e.lastStamp,
-		Pose:    e.f.x.Pose(),
-		VelBody: e.f.x.VelBody(),
-		YawRate: e.f.x.Omega,
-		CovPose: e.f.covPose(),
-		Slip:    e.f.x.Slip,
-		Health:  e.health(),
+		Stamp:    e.lastStamp,
+		Pose:     e.f.x.Pose(),
+		VelBody:  e.f.x.VelBody(),
+		YawRate:  e.f.x.Omega,
+		CovPose:  e.f.covPose(),
+		Slip:     e.f.x.Slip,
+		GyroBias: e.f.x.BiasOmega,
+		Health:   e.health(),
 	}
 	if e.hasVision {
 		est.SinceVision = e.lastStamp.Sub(e.lastVision)

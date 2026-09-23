@@ -55,6 +55,23 @@ func (f *eskf) updateWheels(logical [NumWheels]float64) UpdateInfo {
 	return f.applyUpdate(m)
 }
 
+// updateGyro はジャイロのヨーレートで更新する。
+//
+// 観測モデルは gyro = omega + b_omega。ジャイロは 125 Hz で来るので omega がすぐ追いつき、
+// vision (60〜116 Hz、遅れて届く) と車輪 (滑ると外れる) より速く正確な角速度になる。
+// b_omega は「機体が止まっているのにジャイロが 0 でない」状況で vision と車輪から可観測になる。
+func (f *eskf) updateGyro(yawRate float64) UpdateInfo {
+	const m = 1
+	for j := 0; j < stateDim; j++ {
+		f.h[0][j] = 0
+	}
+	f.h[0][idxOmega] = 1
+	f.h[0][idxBw] = 1
+	f.nu[0] = yawRate - (f.x.Omega + f.x.BiasOmega)
+	f.rdia[0] = f.cfg.Noise.GyroNoise * f.cfg.Noise.GyroNoise
+	return f.applyUpdate(m)
+}
+
 // updateVision は vision の絶対姿勢で更新する。
 //
 // **観測モデルは誤差状態に対して厳密に線形である** (h = [p, theta] そのもの)。
@@ -235,6 +252,7 @@ func (f *eskf) inject() {
 	f.x.V.X += f.dx[idxVx]
 	f.x.V.Y += f.dx[idxVy]
 	f.x.Omega += f.dx[idxOmega]
+	f.x.BiasOmega += f.dx[idxBw]
 	if f.cfg.Noise.EnableSlip {
 		f.x.Slip.X += f.dx[idxSx]
 		f.x.Slip.Y += f.dx[idxSy]

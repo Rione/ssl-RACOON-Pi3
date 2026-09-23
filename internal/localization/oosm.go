@@ -31,6 +31,9 @@ type bufferEntry struct {
 	// wheels はこの周期で取り込んだ車輪観測 (論理輪番号の順)。
 	wheels    [NumWheels]float64
 	hasWheels bool
+	// gyro はこの周期で取り込んだジャイロのヨーレート [rad/s]。
+	gyro    float64
+	hasGyro bool
 }
 
 // ringBuffer は固定長の循環バッファ。起動時に確保して使い回す。

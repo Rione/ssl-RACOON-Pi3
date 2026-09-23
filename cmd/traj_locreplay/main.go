@@ -34,9 +34,11 @@ const wheelLag = 0.008
 const base = 100 * time.Second
 
 type row struct {
-	t, tv  float64
-	pose   localization.Pose2 // その行で見えていた vision の姿勢 (撮影は tv)
-	wheels [4]float64         // FL, BL, BR, FR [rad/s]
+	t, tv    float64
+	pose     localization.Pose2 // その行で見えていた vision の姿勢 (撮影は tv)
+	wheels   [4]float64         // FL, BL, BR, FR [rad/s]
+	imuValid bool
+	yawRate  float64 // ジャイロのヨーレート [rad/s] (IMU のあるファームのみ)
 }
 
 type frame struct {
@@ -54,6 +56,8 @@ func main() {
 	noSlip := flag.Bool("noslip", false, "スリップの状態を使わない")
 	estCSV := flag.String("csv", "", "推定の時系列の書き出し先 CSV")
 	wheelNoise := flag.Float64("wheelnoise", 0, "車輪の回転速度の観測雑音 [rad/s]。0 なら既定 (0.01、未計測)")
+	gyroNoise := flag.Float64("gyronoise", 0, "ジャイロの観測雑音 [rad/s]。0 なら既定")
+	noImu := flag.Bool("noimu", false, "IMU が記録されていても使わない (あり/なしの比較用)")
 	flag.Parse()
 	if flag.NArg() == 0 {
 		fmt.Fprintln(os.Stderr, "usage: traj_locreplay [-ident | -geometry g.json -drop a:b] trajpoc-*.csv ...")
@@ -91,12 +95,15 @@ func main() {
 	if *wheelNoise > 0 {
 		cfg.Noise.WheelNoise = *wheelNoise
 	}
+	if *gyroNoise > 0 {
+		cfg.Noise.GyroNoise = *gyroNoise
+	}
 	drops, err := parseDrops(*drop)
 	check(err)
 	for _, p := range flag.Args() {
 		rows, err := readCSV(p)
 		check(err)
-		replay(p, rows, cfg, time.Duration(*delayMs*float64(time.Millisecond)), drops, *estCSV)
+		replay(p, rows, cfg, time.Duration(*delayMs*float64(time.Millisecond)), drops, *estCSV, !*noImu)
 	}
 }
 
@@ -171,7 +178,7 @@ type estPoint struct {
 	est localization.Estimate
 }
 
-func replay(path string, rows []row, cfg localization.Config, delay time.Duration, drops [][2]float64, estCSV string) {
+func replay(path string, rows []row, cfg localization.Config, delay time.Duration, drops [][2]float64, estCSV string, useImu bool) {
 	e, err := localization.NewEstimator(cfg, localization.EstimatorOptions{VisionDelayComp: delay})
 	check(err)
 	dropped := func(tv float64) bool {
@@ -187,6 +194,10 @@ func replay(path string, rows []row, cfg localization.Config, delay time.Duratio
 	for _, r := range rows {
 		// 行の車輪の値は 1 つ前の SPI 転送で届いたもので、その行で見えた vision より先に手元にある。
 		// 逆に入れると、推定器は vision の時刻まで進んだ後の「時刻が戻った車輪」として捨てる。
+		if useImu && r.imuValid {
+			// IMU は車輪と同じ SPI のフレームで届く (同じ時刻として扱う)。
+			e.AddImu(localization.ImuSample{Stamp: stamp(r.t - wheelLag), GyroZ: r.yawRate, HasGyro: true})
+		}
 		e.AddWheel(localization.WheelSample{Stamp: stamp(r.t - wheelLag), Omega: r.wheels})
 		if r.tv != lastTV && r.tv > lastTV {
 			lastTV = r.tv
@@ -206,7 +217,12 @@ func replay(path string, rows []row, cfg localization.Config, delay time.Duratio
 	}
 	var in2, inH2 float64
 	var inN int
-	fmt.Printf("== %s (delaycomp %.0f ms, slip %v, wheel noise %.3f rad/s)\n", path, delay.Seconds()*1000, cfg.Noise.EnableSlip, cfg.Noise.WheelNoise)
+	imuNote := "IMU なし"
+	if useImu && len(rows) > 0 && rows[len(rows)/2].imuValid {
+		imuNote = fmt.Sprintf("IMU あり (ジャイロ雑音 %.4f rad/s)", cfg.Noise.GyroNoise)
+	}
+	fmt.Printf("== %s (delaycomp %.0f ms, slip %v, wheel noise %.3f rad/s, %s)\n",
+		path, delay.Seconds()*1000, cfg.Noise.EnableSlip, cfg.Noise.WheelNoise, imuNote)
 	for _, f := range fr {
 		if f.tv < et[0]+0.5 || f.tv > et[len(et)-1] || dropped(f.tv) {
 			continue
@@ -331,11 +347,16 @@ func readCSV(path string) ([]row, error) {
 			x, _ := strconv.ParseFloat(rec[col[n]], 64)
 			return x
 		}
-		rows = append(rows, row{
+		r := row{
 			t: v("t_s"), tv: v("tv_s"),
 			pose:   localization.Pose2{X: v("pose_x_mm") / 1000, Y: v("pose_y_mm") / 1000, Theta: v("pose_theta_rad")},
 			wheels: [4]float64{v("wheel_fl_rad_s"), v("wheel_bl_rad_s"), v("wheel_br_rad_s"), v("wheel_fr_rad_s")},
-		})
+		}
+		if _, ok := col["imu_valid"]; ok {
+			r.imuValid = rec[col["imu_valid"]] == "1"
+			r.yawRate = v("imu_yaw_rate_rad_s")
+		}
+		rows = append(rows, r)
 	}
 	if len(rows) < 10 {
 		return nil, fmt.Errorf("%s: too few rows", path)

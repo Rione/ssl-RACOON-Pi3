@@ -158,6 +158,18 @@ type NoiseConfig struct {
 	// 効果を測れない設定を既定にしないために要る。
 	EnableSlip bool `json:"enableSlip"`
 
+	// GyroNoise はジャイロのヨーレートの観測雑音の標準偏差 [rad/s]。**未計測**。
+	// LSM6DSO32 の分解能は 1/900 rad/s なので、量子化だけなら 0.0003 程度。実際は振動が乗る。
+	GyroNoise float64 `json:"gyroNoise"`
+
+	// GyroBiasNoise はジャイロのバイアスのランダムウォークの強さ [rad/s / sqrt(s)]。**未計測**。
+	// 温度でゆっくり動く分を吸収する。大きすぎると omega の誤差をバイアスが食ってしまう。
+	GyroBiasNoise float64 `json:"gyroBiasNoise"`
+
+	// InitGyroBiasVar はジャイロのバイアスの初期分散 [(rad/s)^2]。
+	// STM 側が起動時に静止で引いているので、残りは小さいはず。
+	InitGyroBiasVar float64 `json:"initGyroBiasVar"`
+
 	// WheelNoise は車輪角速度の観測雑音の標準偏差 [rad/s]。**未計測**。
 	//
 	// SPI は rad/s x 100 の int16 なので量子化だけで 0.01/sqrt(12) = 0.003 ある。
@@ -208,6 +220,10 @@ func DefaultNoise() NoiseConfig {
 
 		WheelNoise: 0.01,
 
+		GyroNoise:       0.01,
+		GyroBiasNoise:   0.001,
+		InitGyroBiasVar: 0.01 * 0.01,
+
 		VisionPosNoise: 0.005,
 		VisionAngNoise: 0.5 * math.Pi / 180,
 
@@ -230,6 +246,9 @@ func (n *NoiseConfig) Validate() error {
 		{"accelNoise", n.AccelNoise},
 		{"angAccelNoise", n.AngAccelNoise},
 		{"wheelNoise", n.WheelNoise},
+		{"gyroNoise", n.GyroNoise},
+		{"gyroBiasNoise", n.GyroBiasNoise},
+		{"initGyroBiasVar", n.InitGyroBiasVar},
 		{"visionPosNoise", n.VisionPosNoise},
 		{"visionAngNoise", n.VisionAngNoise},
 		{"huberC", n.HuberC},

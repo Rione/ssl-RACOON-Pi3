@@ -22,8 +22,10 @@ import "math"
 // 姿勢は SO(2) なので左不変と右不変が一致する (2 次元の回転は可換)。
 // 誤差の注入も単なる加算 + 折り返しで済み、共分散のリセット変換も恒等になる。
 //
-// IMU が無いため、計画 §4.2 の 10 次元からジャイロバイアス b_omega を落とし、
-// omega を入力ではなく状態に昇格させてある。
+// omega は入力ではなく状態として持つ (計画 §4.2 の 10 次元の形とは違う)。
+// ジャイロが載った機体 (MainBoard_V26_2 以降) では、ジャイロを「omega の観測」として当て、
+// そのバイアス b_omega を状態に持つ。こうすると車輪・vision と同じ枠に収まり、
+// ジャイロの有無を設定だけで切り替えて効果を比べられる (docs/imu-requirements.md)。
 
 // 誤差状態のインデックス。
 const (
@@ -35,8 +37,9 @@ const (
 	idxOmega = 5
 	idxSx    = 6
 	idxSy    = 7
+	idxBw    = 8 // ジャイロのバイアス [rad/s]
 
-	stateDim = 8
+	stateDim = 9
 	// maxObs は観測の最大次元。車輪が 4、vision が 3。
 	maxObs = 4
 )
@@ -50,6 +53,8 @@ type nominal struct {
 	Omega float64
 	// Slip はロボット系のスリップ速度 [m/s]。
 	Slip Vec2
+	// BiasOmega はジャイロのゼロ点のずれ [rad/s]。ジャイロを使わない間は 0 のまま。
+	BiasOmega float64
 }
 
 // VelBody はロボット系の並進速度を返す。
@@ -109,6 +114,7 @@ func (f *eskf) resetCovariance() {
 		f.P[idxSx][idxSx] = n.InitSlipVar
 		f.P[idxSy][idxSy] = n.InitSlipVar
 	}
+	f.P[idxBw][idxBw] = n.InitGyroBiasVar
 }
 
 // setPose は公称状態を与えられた姿勢で初期化する。
@@ -253,6 +259,9 @@ func (f *eskf) addProcessNoise(dt float64) {
 		f.P[idxSx][idxSx] += qs
 		f.P[idxSy][idxSy] += qs
 	}
+
+	// ジャイロのバイアスはゆっくり歩く (温度で動く)。
+	f.P[idxBw][idxBw] += n.GyroBiasNoise * n.GyroBiasNoise * dt
 }
 
 func (f *eskf) symmetrize() {

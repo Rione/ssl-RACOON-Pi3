@@ -149,6 +149,8 @@ type Estimate struct {
 	CovPose Mat3
 	// Slip は推定したスリップ速度 [m/s]。診断にも制御にも使える。
 	Slip Vec2
+	// GyroBias は推定したジャイロのゼロ点のずれ [rad/s] (診断用)。ジャイロが無ければ 0。
+	GyroBias float64
 	// SinceVision は最後に有効な vision 観測を取り込んでからの経過時間。
 	SinceVision time.Duration
 	// Health は推定の健全性。
