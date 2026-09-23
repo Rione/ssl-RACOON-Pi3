@@ -29,12 +29,18 @@ func RunFilter(s *Sensors, cfg localization.Config, opts localization.EstimatorO
 	offset := localization.Stamp(-s.Config.WheelTimeOffset)
 
 	out := make([]localization.Estimate, 0, len(s.Wheels))
-	vi := 0
+	vi, ii := 0, 0
 	for _, w := range s.Wheels {
 		arrivedBy := w.Stamp + offset
 		for vi < len(vision) && vision[vi].Arrival <= arrivedBy {
 			est.AddVision(vision[vi])
 			vi++
+		}
+		// IMU は車輪と同じ SPI フレームで届く。**車輪より先に入れる**
+		// (同じ時刻なので順序は結果を変えないが、実機の到着順に合わせる)。
+		for ii < len(s.Imu) && s.Imu[ii].Stamp <= w.Stamp {
+			est.AddImu(s.Imu[ii])
+			ii++
 		}
 		est.AddWheel(w)
 		out = append(out, est.Current())

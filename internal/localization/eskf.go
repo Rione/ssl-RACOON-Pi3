@@ -7,8 +7,9 @@ import "math"
 // 状態の持ち方 (計画 §4.2):
 //
 //	公称状態   theta (ワールド姿勢), p (ワールド位置), V (**ワールド**速度),
-//	           omega (ヨーレート), s (ロボット系スリップ速度)
-//	誤差状態   [dPhi, dP(2), dV(2), dOmega, dS(2)]  = 8 次元
+//	           omega (ヨーレート), s (ロボット系スリップ速度),
+//	           kv/kw (並進・回転の倍率), ka (取付角の補正)
+//	誤差状態   [dPhi, dP(2), dV(2), dOmega, dS(2), dKv, dKw, dKa]  = 11 次元
 //
 // **速度をワールド系で持つのが部分不変の肝である。** 位置の誤差伝播が
 //
@@ -22,10 +23,8 @@ import "math"
 // 姿勢は SO(2) なので左不変と右不変が一致する (2 次元の回転は可換)。
 // 誤差の注入も単なる加算 + 折り返しで済み、共分散のリセット変換も恒等になる。
 //
-// omega は入力ではなく状態として持つ (計画 §4.2 の 10 次元の形とは違う)。
-// ジャイロが載った機体 (MainBoard_V26_2 以降) では、ジャイロを「omega の観測」として当て、
-// そのバイアス b_omega を状態に持つ。こうすると車輪・vision と同じ枠に収まり、
-// ジャイロの有無を設定だけで切り替えて効果を比べられる (docs/imu-requirements.md)。
+// IMU が無いため、計画 §4.2 の 10 次元からジャイロバイアス b_omega を落とし、
+// omega を入力ではなく状態に昇格させてある。
 
 // 誤差状態のインデックス。
 const (
@@ -37,10 +36,32 @@ const (
 	idxOmega = 5
 	idxSx    = 6
 	idxSy    = 7
-	idxBw    = 8 // ジャイロのバイアス [rad/s]
 
-	stateDim = 9
-	// maxObs は観測の最大次元。車輪が 4、vision が 3。
+	// 機体パラメータの倍率 (docs/self-localization-research-20260923.md §4.1)。
+	//
+	// CAD (60 度 / 78.45 mm) と同定値 (55.4 度 / 74 mm) が食い違っているので、
+	// どちらかを選ぶ代わりにオンラインで較正する。Mozzarelli ほか
+	// (arXiv:2403.13452) が車輪半径とジャイロバイアスでやっているのと同じ形。
+	//
+	//	idxKv  並進の倍率   (公称 1)
+	//	idxKw  回転の倍率   (公称 1)
+	//	idxKa  取付角の補正 [rad] (公称 0)
+	//
+	// 可観測なのは実質この 3 自由度だけである。4 輪の残差が vision に見えるのは
+	// body 速度 3 成分を通してだけなので、個別の半径差は冗長残差 (redundancy.go)
+	// からしか見えず、そちらはオフライン較正の仕事にしてある。
+	idxKv = 8
+	idxKw = 9
+	idxKa = 10
+
+	// idxBg はジャイロバイアス [rad/s]。ジャイロが載ったときだけ動く。
+	//
+	// バイアスが可観測になるのは vision (向きの絶対値) と ZARU (停止中の
+	// omega = 0 の疑似観測) 経由。**停止のたびに較正し直される**のが効く。
+	idxBg = 11
+
+	stateDim = 12
+	// maxObs は観測の最大次元。車輪が 4、vision と ZUPT が 3。
 	maxObs = 4
 )
 
@@ -53,8 +74,12 @@ type nominal struct {
 	Omega float64
 	// Slip はロボット系のスリップ速度 [m/s]。
 	Slip Vec2
-	// BiasOmega はジャイロのゼロ点のずれ [rad/s]。ジャイロを使わない間は 0 のまま。
-	BiasOmega float64
+
+	// Kv / Kw は並進・回転の倍率 (公称 1)、Ka は取付角の補正 [rad] (公称 0)。
+	Kv, Kw, Ka float64
+
+	// GyroBias はジャイロのバイアス [rad/s]。
+	GyroBias float64
 }
 
 // VelBody はロボット系の並進速度を返す。
@@ -73,6 +98,24 @@ type eskf struct {
 
 	x nominal
 	P [stateDim][stateDim]float64
+
+	// paramsFrozen は機体パラメータの補正を止めているか。
+	//
+	// vision が十分新しいときだけ緩める。車輪観測だけでは v と Kv が
+	// 積としてしか現れず不可観測な尾根になるので、そこで補正を許すと
+	// 公称値が尾根に沿って流れる (Mozzarelli ほかが「仮想観測は不可観測な
+	// 状態の共分散を人工的に収束させる」として却下したのと同じ問題)。
+	paramsFrozen bool
+
+	// vbA / vbB は vision の R をオンライン推定する逆ガンマの十分統計量
+	// (軸ごと: x, y, theta)。R_i = vbB_i / vbA_i。
+	vbA [3]float64
+	vbB [3]float64
+	// vbInit は十分統計量を初期化済みか。
+	vbInit bool
+
+	// collisionCycles は衝突検出でプロセス雑音を膨らませ続ける残り周期数。
+	collisionCycles int
 
 	// 以下はホットパスの作業領域。起動時に確保して使い回す。
 	h    [maxObs][stateDim]float64
@@ -97,8 +140,32 @@ func newESKF(cfg Config) (*eskf, error) {
 		return nil, err
 	}
 	f := &eskf{cfg: cfg, kin: kin}
+	f.resetNominal()
 	f.resetCovariance()
+	f.resetAdaptiveR()
 	return f, nil
+}
+
+// resetNominal は公称状態を初期値へ戻す。倍率は 1、角度補正は 0。
+func (f *eskf) resetNominal() {
+	f.x = nominal{Kv: 1, Kw: 1}
+}
+
+// resetAdaptiveR は vision の適応 R の十分統計量を公称値で初期化する。
+func (f *eskf) resetAdaptiveR() {
+	n := f.cfg.Noise
+	nominalR := [3]float64{
+		n.VisionPosNoise * n.VisionPosNoise,
+		n.VisionPosNoise * n.VisionPosNoise,
+		n.VisionAngNoise * n.VisionAngNoise,
+	}
+	// 逆ガンマの平均が公称 R になるようにする。a を大きくすると事前分布が強くなる。
+	const priorStrength = 20.0
+	for i := 0; i < 3; i++ {
+		f.vbA[i] = priorStrength
+		f.vbB[i] = priorStrength * nominalR[i]
+	}
+	f.vbInit = true
 }
 
 func (f *eskf) resetCovariance() {
@@ -114,7 +181,14 @@ func (f *eskf) resetCovariance() {
 		f.P[idxSx][idxSx] = n.InitSlipVar
 		f.P[idxSy][idxSy] = n.InitSlipVar
 	}
-	f.P[idxBw][idxBw] = n.InitGyroBiasVar
+	if n.EnableParamEstimation {
+		f.P[idxKv][idxKv] = n.InitParamScaleVar
+		f.P[idxKw][idxKw] = n.InitParamScaleVar
+		f.P[idxKa][idxKa] = n.InitParamAngleVar
+	}
+	if n.EnableGyro {
+		f.P[idxBg][idxBg] = n.InitGyroBiasVar
+	}
 }
 
 // setPose は公称状態を与えられた姿勢で初期化する。
@@ -127,8 +201,18 @@ func (f *eskf) setPose(pose Pose2) {
 //
 // dt は SPI 転送時刻の差分の実測値を使う。公称 8 ms は使わない (計画 §5.2)。
 func (f *eskf) predict(dt float64) {
+	f.predictRecording(dt)
+}
+
+// predictRecording は predict と同じことをして、使った遷移行列 F を返す。
+// RTS スムーザ (smoother.go) が後ろ向きの再帰に F を必要とする。
+func (f *eskf) predictRecording(dt float64) [stateDim][stateDim]float64 {
+	var F [stateDim][stateDim]float64
+	for i := range F {
+		F[i][i] = 1
+	}
 	if dt <= 0 {
-		return
+		return F
 	}
 	n := f.cfg.Noise
 	alpha := f.x.Omega * dt
@@ -156,10 +240,6 @@ func (f *eskf) predict(dt float64) {
 	}
 
 	// --- 遷移行列 F ---
-	var F [stateDim][stateDim]float64
-	for i := range F {
-		F[i][i] = 1
-	}
 	// dPhi' = dPhi + dOmega*dt
 	F[idxPhi][idxOmega] = dt
 
@@ -192,10 +272,22 @@ func (f *eskf) predict(dt float64) {
 		F[idxSy][idxSy] = 0
 	}
 
+	// 機体パラメータは定数 (F は単位行列のまま)。時定数は分オーダーなので、
+	// 動きはランダムウォークの Q だけで表す。
+	if !n.EnableParamEstimation {
+		F[idxKv][idxKv] = 0
+		F[idxKw][idxKw] = 0
+		F[idxKa][idxKa] = 0
+	}
+	if !n.EnableGyro {
+		F[idxBg][idxBg] = 0
+	}
+
 	// --- P = F P F^T + Q ---
 	f.propagateCovariance(&F)
 	f.addProcessNoise(dt)
 	f.symmetrize()
+	return F
 }
 
 // propagateCovariance は P <- F P F^T を計算する。
@@ -236,7 +328,15 @@ func (f *eskf) addProcessNoise(dt float64) {
 	dt2 := dt * dt
 	dt3 := dt2 * dt
 
-	qa := n.AccelNoise * n.AccelNoise
+	// 衝突を検出している間はプロセス雑音を膨らませる。加速度計を速度の予測に
+	// 使わない代わりの扱い (研究 §3.1 / §4.7)。
+	boost := 1.0
+	if f.collisionCycles > 0 {
+		boost = n.AccelCollisionBoost
+		f.collisionCycles--
+	}
+
+	qa := n.AccelNoise * n.AccelNoise * boost
 	f.P[idxPx][idxPx] += qa * dt3 / 3
 	f.P[idxPy][idxPy] += qa * dt3 / 3
 	f.P[idxVx][idxVx] += qa * dt
@@ -247,7 +347,7 @@ func (f *eskf) addProcessNoise(dt float64) {
 	f.P[idxPy][idxVy] += cross
 	f.P[idxVy][idxPy] += cross
 
-	qw := n.AngAccelNoise * n.AngAccelNoise
+	qw := n.AngAccelNoise * n.AngAccelNoise * boost
 	f.P[idxPhi][idxPhi] += qw * dt3 / 3
 	f.P[idxOmega][idxOmega] += qw * dt
 	crossW := qw * dt2 / 2
@@ -260,8 +360,18 @@ func (f *eskf) addProcessNoise(dt float64) {
 		f.P[idxSy][idxSy] += qs
 	}
 
-	// ジャイロのバイアスはゆっくり歩く (温度で動く)。
-	f.P[idxBw][idxBw] += n.GyroBiasNoise * n.GyroBiasNoise * dt
+	if n.EnableParamEstimation {
+		// **vision が来ていないあいだも共分散は育てる。** Mozzarelli ほかは
+		// 予測は全状態に、補正は可観測な状態だけに当てている。凍結中に共分散まで
+		// 止めると、復帰したときに補正が効かなくなる。
+		qk := n.ParamScaleNoise * n.ParamScaleNoise * dt
+		f.P[idxKv][idxKv] += qk
+		f.P[idxKw][idxKw] += qk
+		f.P[idxKa][idxKa] += n.ParamAngleNoise * n.ParamAngleNoise * dt
+	}
+	if n.EnableGyro {
+		f.P[idxBg][idxBg] += n.GyroBiasNoise * n.GyroBiasNoise * dt
+	}
 }
 
 func (f *eskf) symmetrize() {

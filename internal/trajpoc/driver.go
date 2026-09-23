@@ -109,7 +109,7 @@ func NewDriver(rel []Knot, cfg Config, vision VisionSource, now Clock) (*Driver,
 // SetWheelSource は車輪の回転速度の読み出しを登録する。Arm の前に呼ぶ。
 // 記録するほか、車輪と vision の食い違いの検査 (consistency.go) に使う。
 func (d *Driver) SetWheelSource(w WheelSource) error {
-	c, err := supervisor.NewWheelVisionCheck(PoCGeometry())
+	c, err := supervisor.NewWheelVisionCheck(localization.DefaultGeometry())
 	if err != nil {
 		return err
 	}

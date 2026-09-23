@@ -139,9 +139,9 @@ type simFrame struct {
 
 func sec(s float64) localization.Stamp { return localization.Stamp(s * 1e9) }
 
-// wheels は機体の今の速度から、PoCGeometry で車輪の回転速度 (SPI の並び) を作る。
+// wheels は機体の今の速度から、既定の機体パラメータで車輪の回転速度 (SPI の並び) を作る。
 func (r *simRobot) wheels() [4]float64 {
-	k, err := localization.NewKinematics(PoCGeometry())
+	k, err := localization.NewKinematics(localization.DefaultGeometry())
 	if err != nil {
 		panic(err)
 	}
@@ -534,7 +534,7 @@ func TestDriverRecordsTheEstimator(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := localization.DefaultConfig()
-	cfg.Geometry = PoCGeometry()
+	cfg.Geometry = localization.DefaultGeometry()
 	e, err := localization.NewEstimator(cfg, localization.EstimatorOptions{})
 	if err != nil {
 		t.Fatal(err)

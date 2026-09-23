@@ -37,12 +37,37 @@ type Config struct {
 
 	// WheelRate は車輪サンプルの周期。既定 8 ms (SPI の公称周期)。
 	WheelRate time.Duration
-	// WheelNoiseRadS は車輪角速度の白色雑音の標準偏差 [rad/s]。**未計測**。
+	// WheelNoiseRadS は車輪角速度の白色雑音のうち、速度に依存しない分の
+	// 標準偏差 [rad/s]。
 	WheelNoiseRadS float64
+	// WheelNoiseSpeedCoef は車輪角速度に比例する雑音の係数 [無次元]。
+	//
+	// オムニ車輪の有効転がり半径はローラの入れ替わりで変動する (polygon 効果)。
+	// 本機はローラ 15 個 x 2 列・角ピッチ 12 度なので、0.4 m/s では約 68 Hz の
+	// リップルになり、125 Hz のサンプリングでは白色として扱える
+	// (docs/self-localization-research-20260923.md §3.7)。
+	WheelNoiseSpeedCoef float64
 	// WheelQuantRadS は量子化幅 [rad/s]。SPI は rad/s x 100 の int16 なので 0.01。
 	WheelQuantRadS float64
-	// WheelTimeOffset は転送時刻に対するサンプル時刻のずれ。通常は負。**未計測** (D-5)。
+	// WheelTimeOffset は転送時刻に対するサンプル時刻のずれ。通常は負。
+	//
+	// サンプルの刻印はサンプル時刻そのもので、転送 (= Pi に届く時刻) は
+	// stamp - WheelTimeOffset になる。vision との到着順を決めるのに使う。
 	WheelTimeOffset time.Duration
+	// --- IMU (STM に載った場合) ---
+
+	// HasGyro が true なら車輪と同じ周期でジャイロを合成する。
+	//
+	// **既定は false。** 現行の STM は IMU を送ってこない (計画 §3.5)。
+	// ssl-Circuit の FW/MainBoard_V26_2 に LSM6DSO32 を読む実装があるので、
+	// 載ったときに効果を測れるようにしてある。
+	HasGyro bool
+	// GyroNoiseRadS はジャイロの白色雑音の標準偏差 [rad/s]。
+	// RoboTeam Twente の実測 (Xsens MTi-3) は走行中 0.037 rad/s。
+	GyroNoiseRadS float64
+	// GyroBiasRadS は一定のバイアス [rad/s]。推定器がこれを当てられるかを見る。
+	GyroBiasRadS float64
+
 	// Slip はロボット系のスリップ速度 [m/s] を返す。nil ならスリップ無し。
 	//
 	// 車輪は「実際の運動 + スリップ」を見る。地面に対して滑っているぶん、
@@ -87,26 +112,41 @@ func (c *Config) withDefaults() {
 	}
 }
 
-// DefaultConfig は暫定のセンサ設定を返す。
+// DefaultConfig は既定のセンサ設定を返す。
 //
-// **どの数値も未計測である。** 実測で置き換えるまで、これで出した精度を
-// 実機の保証と取り違えないこと。
+// **2026-09-23 に実機の実測値へ置き換えた。** 出典は Trajectory POC Log
+// (軌道追従 PoC、テスト機 racoon-56011、SSL-Vision カメラ 1 台)。
+// 合成データでフィルタを良く見せるためにここを触らないこと。
+// **フィルタを合成データへ合わせ込むのではなく、合成データを実機へ合わせる。**
 func DefaultConfig() Config {
 	return Config{
 		Geometry: localization.DefaultGeometry(),
 
 		WheelRate: 8 * time.Millisecond,
-		// 量子化 (0.01 rad/s) の 1/3 程度を白色雑音として置く。根拠は無い。
-		WheelNoiseRadS:  0.003,
-		WheelQuantRadS:  0.01,
-		WheelTimeOffset: -4 * time.Millisecond,
+		// **実機ログからの実測** (2026-09-23、11 本 8749 サンプル):
+		// 冗長残差の広がりは 車輪 0.3 rad/s で 0.23、12.5 rad/s で 1.13。
+		// 切片 0.23 + 比例 0.07。切片には STM の速度制御の行き過ぎが入っている
+		// (PoC §5-16)。詳しい根拠は localization.DefaultNoise のコメント。
+		WheelNoiseRadS:      0.23,
+		WheelNoiseSpeedCoef: 0.07,
+		WheelQuantRadS:      0.01,
+		// 実測: 車輪と vision の速度が最も合うのは車輪を 8..12 ms 古いとしたとき
+		// (PoC §5-17)。SPI の 1 周期 = 8 ms と整合する。
+		WheelTimeOffset: -10 * time.Millisecond,
 
-		VisionRate: time.Second / 60,
-		// SSL-Vision の静止時分散は実測していない。5 mm / 0.5 度は一般的な桁として置いた値。
-		VisionNoiseM:   0.005,
-		VisionNoiseRad: 0.5 * math.Pi / 180,
+		// 実測: 自機の更新は約 116 Hz (PoC §1)。
+		VisionRate: time.Second / 116,
+		// 実測: 位置の細かい揺れ 0.2..0.4 mm RMS、向き 0.25..0.32 度 (PoC §5-11)。
+		// **短期の再現性であって絶対精度ではない** (研究 §4.6 の注)。
+		VisionNoiseM:   0.0004,
+		VisionNoiseRad: 0.32 * math.Pi / 180,
 		VisionMinDelay: 20 * time.Millisecond,
 		VisionJitter:   5 * time.Millisecond,
+		// 実測: timesync の写像に足りない片道遅延は 0..4 ms (PoC §5-17)。
+		// **計画 §5.3 が「原理的に分離できない」とした定数は、車輪という独立な
+		// 速度源があれば相関で測れる。** 以前の既定 20 ms は測る前の置き値だった。
+		VisionTimeBias: 2 * time.Millisecond,
+		// 実測: 最大の途切れ 17..34 ms (= 2..4 フレーム) (PoC §5-11)。
 		VisionLossRate: 0.02,
 		Cameras:        1,
 	}
@@ -121,6 +161,8 @@ type Sensors struct {
 	// 論理輪番号ではなくスロット順なのは、実機で Pi が受け取るのがこれだから。
 	// フィルタが wheelSlotOrder を取り違えていれば、ここで食い違う。
 	Wheels []localization.WheelSample
+	// Imu はジャイロ・加速度。Config.HasGyro が false なら空。
+	Imu []localization.ImuSample
 	// Vision は自機の観測。欠落ぶんは含まれない。
 	Vision []localization.VisionPose
 	// Config は**既定値を埋めた後の**設定。
@@ -180,8 +222,34 @@ func Generate(tr Trajectory, cfg Config, seed int64) (*Sensors, error) {
 	rng := rand.New(rand.NewSource(seed))
 
 	s.Truth, s.Wheels = generateWheels(tr, cfg, k, rng)
+	if cfg.HasGyro {
+		s.Imu = generateImu(tr, cfg, rng)
+	}
 	s.Vision = generateVision(tr, cfg, rng)
 	return s, nil
+}
+
+// generateImu は車輪と同じ周期でジャイロを合成する。
+//
+// 加速度計は合成しない。走行中の実測雑音が 2.5 m/s^2 と大きく、推定には
+// 使わないと決めてあるため (研究 §3.1 / §4.7)。衝突検出の試験は別途。
+func generateImu(tr Trajectory, cfg Config, rng *rand.Rand) []localization.ImuSample {
+	n := int(tr.Duration()/cfg.WheelRate) + 1
+	out := make([]localization.ImuSample, 0, n)
+	for i := 0; i < n; i++ {
+		t := time.Duration(i) * cfg.WheelRate
+		tv := tr.At(t)
+		z := tv.YawRate + cfg.GyroBiasRadS
+		if cfg.GyroNoiseRadS > 0 {
+			z += rng.NormFloat64() * cfg.GyroNoiseRadS
+		}
+		out = append(out, localization.ImuSample{
+			Stamp:   localization.Stamp(t),
+			GyroZ:   z,
+			HasGyro: true,
+		})
+	}
+	return out
 }
 
 func generateWheels(tr Trajectory, cfg Config, k *localization.Kinematics, rng *rand.Rand) ([]Truth, []localization.WheelSample) {
@@ -205,13 +273,24 @@ func generateWheels(tr Trajectory, cfg Config, k *localization.Kinematics, rng *
 		)
 
 		var ws localization.WheelSample
-		// 車輪サンプルの時刻は転送時刻ではなく、STM が読んだ推定時刻。
-		ws.Stamp = localization.Stamp(t).Add(cfg.WheelTimeOffset)
+		// **刻印は、その値を取った時刻そのもの。**
+		//
+		// 以前はここで WheelTimeOffset を足していたが、値は tr.At(t) から
+		// 作っているので「t の運動に t+offset の刻印を付ける」ことになり、
+		// 合成データ自身に offset ぶんの時刻誤差が入っていた。
+		// WheelTimeOffset が表すのは「転送時刻に対してサンプルがどれだけ古いか」で、
+		// これは RunFilter が到着時刻を決めるのに使う (stamp - offset が転送時刻)。
+		ws.Stamp = localization.Stamp(t)
 		for slot := 0; slot < localization.NumWheels; slot++ {
 			// 実機の Pi が受け取るのはスロット順なので、真の対応で並べ替える。
 			v := logical[cfg.Geometry.WheelSlotOrder[slot]]
-			if cfg.WheelNoiseRadS > 0 {
-				v += rng.NormFloat64() * cfg.WheelNoiseRadS
+			sigma2 := cfg.WheelNoiseRadS * cfg.WheelNoiseRadS
+			if cfg.WheelNoiseSpeedCoef > 0 {
+				sp := cfg.WheelNoiseSpeedCoef * v
+				sigma2 += sp * sp
+			}
+			if sigma2 > 0 {
+				v += rng.NormFloat64() * math.Sqrt(sigma2)
 			}
 			if cfg.WheelQuantRadS > 0 {
 				v = math.Round(v/cfg.WheelQuantRadS) * cfg.WheelQuantRadS

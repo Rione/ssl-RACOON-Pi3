@@ -16,60 +16,149 @@ type UpdateInfo struct {
 	Normalized float64
 	// HuberWeight は Huber の重み。1 なら減衰していない。
 	HuberWeight float64
+	// RScale は適応 R が公称値の何倍になっているか (vision のみ、位置成分)。
+	RScale float64
+	// ParamsFrozen はこの更新で機体パラメータの補正を止めたか。
+	ParamsFrozen bool
 }
 
 // updateWheels は 4 輪の角速度 (論理輪番号の順) で更新する。
 //
-// 観測モデル: omega_i = M_i . [v_body + slip, omega]
+// 観測モデル (機体パラメータの倍率つき):
+//
+//	u          = Kv * (v_body + slip)                 並進の倍率
+//	omega_i    = g_i * [ sin(a_i + Ka)*u_x - cos(a_i + Ka)*u_y - R*Kw*omega ]
+//	g_i        = sign_i / r_i
+//
+// Kv / Kw / Ka は状態なので、**CAD と同定値の食い違い (研究 §2.3) を
+// オンラインで吸収する**。公称は Kv = Kw = 1, Ka = 0。
 //
 // **4 次元のまま扱う。** 擬似逆で 3 次元に潰すと 4 輪それぞれの雑音が混ざり、
 // 個別の車輪異常が見えなくなる。冗長性の残差はスリップ推定に効く情報でもある
 // (計画 §4.5)。
 func (f *eskf) updateWheels(logical [NumWheels]float64) UpdateInfo {
 	const m = NumWheels
+	n := f.cfg.Noise
 	vb := f.x.VelBody()
 	sin, cos := math.Sincos(f.x.Theta)
 
+	// 並進の入力 (倍率をかける前の body 速度 + スリップ)。
+	ux := vb.X
+	uy := vb.Y
+	if n.EnableSlip {
+		ux += f.x.Slip.X
+		uy += f.x.Slip.Y
+	}
+	arm := f.kin.Arm()
+
+	// スリップ量で R を膨らませる倍率 (Yu ほか IROS 2023 の W_y = W_0 exp(||u||))。
+	// 等方に効かせ、上限でクランプする。
+	slipScale := 1.0
+	if n.EnableSlip && n.SlipRScaleRef > 0 {
+		mag := math.Hypot(f.x.Slip.X, f.x.Slip.Y)
+		slipScale = math.Exp(mag / n.SlipRScaleRef)
+		if slipScale > n.SlipRScaleMax {
+			slipScale = n.SlipRScaleMax
+		}
+	}
+
 	for i := 0; i < m; i++ {
-		row := f.kin.Row(i)
-		m0, m1, m2 := row[0], row[1], row[2]
+		g := f.kin.Gain(i)
+		sa, ca := math.Sincos(f.kin.Angle(i) + f.x.Ka)
+		// 倍率を掛ける前の観測行 (単位は 1/m)。
+		rowX := g * sa
+		rowY := -g * ca
 
 		for j := 0; j < stateDim; j++ {
 			f.h[i][j] = 0
 		}
 		// d(v_body)/d(dPhi) = -J * v_body = (v_by, -v_bx)
-		f.h[i][idxPhi] = m0*vb.Y - m1*vb.X
+		f.h[i][idxPhi] = f.x.Kv * (rowX*vb.Y - rowY*vb.X)
 		// d(v_body)/d(dV) = R(theta)^T
-		f.h[i][idxVx] = m0*cos - m1*sin
-		f.h[i][idxVy] = m0*sin + m1*cos
-		f.h[i][idxOmega] = m2
-		if f.cfg.Noise.EnableSlip {
-			f.h[i][idxSx] = m0
-			f.h[i][idxSy] = m1
+		f.h[i][idxVx] = f.x.Kv * (rowX*cos - rowY*sin)
+		f.h[i][idxVy] = f.x.Kv * (rowX*sin + rowY*cos)
+		f.h[i][idxOmega] = -g * arm * f.x.Kw
+		if n.EnableSlip {
+			f.h[i][idxSx] = f.x.Kv * rowX
+			f.h[i][idxSy] = f.x.Kv * rowY
+		}
+		if n.EnableParamEstimation {
+			f.h[i][idxKv] = rowX*ux + rowY*uy
+			f.h[i][idxKw] = -g * arm * f.x.Omega
+			// d/dKa [ sin(a+Ka)*ux - cos(a+Ka)*uy ] = cos(a+Ka)*ux + sin(a+Ka)*uy
+			f.h[i][idxKa] = f.x.Kv * g * (ca*ux + sa*uy)
 		}
 
-		expected := m0*(vb.X+f.x.Slip.X) + m1*(vb.Y+f.x.Slip.Y) + m2*f.x.Omega
+		expected := f.x.Kv*(rowX*ux+rowY*uy) - g*arm*f.x.Kw*f.x.Omega
 		f.nu[i] = logical[i] - expected
-		f.rdia[i] = f.cfg.Noise.WheelNoise * f.cfg.Noise.WheelNoise
+
+		// 車輪雑音は速度に比例する分を持つ。オムニ車輪の有効転がり半径が
+		// ローラの入れ替わりで変動する (polygon 効果) ため (研究 §3.7)。
+		sigma2 := n.WheelNoise * n.WheelNoise
+		if n.WheelNoiseSpeedCoef > 0 {
+			sp := n.WheelNoiseSpeedCoef * logical[i]
+			sigma2 += sp * sp
+		}
+		f.rdia[i] = sigma2 * slipScale
 	}
+	info := f.applyUpdate(m)
+	info.ParamsFrozen = f.paramsFrozen
+	return info
+}
+
+// updateZupt は停止中の疑似観測 (ワールド速度 0、ヨーレート 0) を当てる。
+//
+// SSL のロボットは試合中に頻繁に止まる (STOP / HALT / 配置待ち)。止まっている
+// あいだ位置がクリープするのを止め、スリップ状態をゼロへ引き戻す。
+// **誤検出は致命的** (動いているのに位置が固まる) なので、呼ぶ側で
+// 3 条件の AND を取ること (estimator.go の zuptDetect)。
+func (f *eskf) updateZupt() UpdateInfo {
+	const m = 3
+	n := f.cfg.Noise
+	for i := 0; i < m; i++ {
+		for j := 0; j < stateDim; j++ {
+			f.h[i][j] = 0
+		}
+	}
+	f.h[0][idxVx] = 1
+	f.h[1][idxVy] = 1
+	f.h[2][idxOmega] = 1
+
+	f.nu[0] = -f.x.V.X
+	f.nu[1] = -f.x.V.Y
+	f.nu[2] = -f.x.Omega
+
+	vv := n.ZuptVelNoise * n.ZuptVelNoise
+	f.rdia[0] = vv
+	f.rdia[1] = vv
+	f.rdia[2] = n.ZuptOmegaNoise * n.ZuptOmegaNoise
 	return f.applyUpdate(m)
 }
 
 // updateGyro はジャイロのヨーレートで更新する。
 //
-// 観測モデルは gyro = omega + b_omega。ジャイロは 125 Hz で来るので omega がすぐ追いつき、
-// vision (60〜116 Hz、遅れて届く) と車輪 (滑ると外れる) より速く正確な角速度になる。
-// b_omega は「機体が止まっているのにジャイロが 0 でない」状況で vision と車輪から可観測になる。
-func (f *eskf) updateGyro(yawRate float64) UpdateInfo {
+//	z = omega + b_g + noise
+//
+// ジャイロを「予測の入力」ではなく観測にしている理由は NoiseConfig.EnableGyro
+// のコメントに書いた。バイアス b_g は vision の向きと ZARU (停止中の
+// omega = 0 の疑似観測) 経由で可観測になる。**停止のたびに較正し直される。**
+func (f *eskf) updateGyro(z float64) UpdateInfo {
 	const m = 1
 	for j := 0; j < stateDim; j++ {
 		f.h[0][j] = 0
 	}
 	f.h[0][idxOmega] = 1
-	f.h[0][idxBw] = 1
-	f.nu[0] = yawRate - (f.x.Omega + f.x.BiasOmega)
+	f.h[0][idxBg] = 1
+	f.nu[0] = z - (f.x.Omega + f.x.GyroBias)
 	f.rdia[0] = f.cfg.Noise.GyroNoise * f.cfg.Noise.GyroNoise
 	return f.applyUpdate(m)
+}
+
+// noteCollision は加速度が閾値を超えたことを記録し、しばらくプロセス雑音を膨らませる。
+func (f *eskf) noteCollision(cycles int) {
+	if cycles > f.collisionCycles {
+		f.collisionCycles = cycles
+	}
 }
 
 // updateVision は vision の絶対姿勢で更新する。
@@ -79,6 +168,7 @@ func (f *eskf) updateGyro(yawRate float64) UpdateInfo {
 // 計画 §4.4 は IEKF を挙げているが、この観測に関しては入れる意味がない。
 func (f *eskf) updateVision(pose Pose2) UpdateInfo {
 	const m = 3
+	n := f.cfg.Noise
 	for i := 0; i < m; i++ {
 		for j := 0; j < stateDim; j++ {
 			f.h[i][j] = 0
@@ -93,12 +183,82 @@ func (f *eskf) updateVision(pose Pose2) UpdateInfo {
 	// 角度の残差は必ず折り返してから使う。素直に引くと +-pi 付近で 2pi 飛ぶ。
 	f.nu[2] = AngleDiff(pose.Theta, f.x.Theta)
 
-	pv := f.cfg.Noise.VisionPosNoise * f.cfg.Noise.VisionPosNoise
-	f.rdia[0] = pv
-	f.rdia[1] = pv
-	f.rdia[2] = f.cfg.Noise.VisionAngNoise * f.cfg.Noise.VisionAngNoise
+	pv := n.VisionPosNoise * n.VisionPosNoise
+	av := n.VisionAngNoise * n.VisionAngNoise
+	// **時刻の不確かさを速度で位置の不確かさへ直して足す** (計画 §5.3)。
+	// 定数の R では表せない速度依存の項で、入れないと速い走りで過信になる。
+	if st := n.VisionTimeSigma; st > 0 {
+		vb := f.x.VelBody()
+		speed := math.Hypot(vb.X, vb.Y)
+		dp := speed * st
+		pv += dp * dp
+		dth := f.x.Omega * st
+		av += dth * dth
+	}
+	nominalR := [3]float64{pv, pv, av}
 
-	return f.applyUpdate(m)
+	if n.AdaptiveVisionR {
+		// VB-AKF (Sarkka & Nummenmaa) の軸ごと逆ガンマ版。
+		// 予測: 忘却係数 rho を十分統計量に掛ける (平均は変えず分散を広げる)。
+		for i := 0; i < m; i++ {
+			f.vbA[i] *= n.AdaptiveForgetting
+			f.vbB[i] *= n.AdaptiveForgetting
+			r := f.vbB[i] / f.vbA[i]
+			// クランプは発散防止のため必須 (計画 §4.4)。
+			if lo := nominalR[i] * n.AdaptiveMinScale; r < lo {
+				r = lo
+			}
+			if hi := nominalR[i] * n.AdaptiveMaxScale; r > hi {
+				r = hi
+			}
+			f.rdia[i] = r
+		}
+	} else {
+		for i := 0; i < m; i++ {
+			f.rdia[i] = nominalR[i]
+		}
+	}
+
+	// イノベーションは更新で消えるので、統計量の更新用に控えておく。
+	var innov [3]float64
+	copy(innov[:], f.nu[:m])
+
+	info := f.applyUpdate(m)
+	if nominalR[0] > 0 {
+		info.RScale = f.rdia[0] / nominalR[0]
+	}
+	info.ParamsFrozen = f.paramsFrozen
+
+	if n.AdaptiveVisionR && info.Applied {
+		// 更新: b <- b + 0.5*(nu^2 + (H P_post H^T)_ii), a <- a + 0.5。
+		// P_post を使うのが VB の固定点 (事前の P を使うのは古典的な
+		// イノベーション整合で、R を過大に見積もる)。
+		for i := 0; i < m; i++ {
+			hph := f.quadraticFormP(i)
+			f.vbA[i] += 0.5
+			f.vbB[i] += 0.5 * (innov[i]*innov[i] + hph)
+		}
+	}
+	return info
+}
+
+// quadraticFormP は (H P H^T)_ii を現在の P で計算する。
+// 適応 R の十分統計量の更新に使う。アロケートしない。
+func (f *eskf) quadraticFormP(i int) float64 {
+	var sum float64
+	for a := 0; a < stateDim; a++ {
+		if f.h[i][a] == 0 {
+			continue
+		}
+		var inner float64
+		for b := 0; b < stateDim; b++ {
+			if f.h[i][b] != 0 {
+				inner += f.P[a][b] * f.h[i][b]
+			}
+		}
+		sum += f.h[i][a] * inner
+	}
+	return sum
 }
 
 // applyUpdate は H / nu / rdia が埋まった状態で更新を実行する。
@@ -147,6 +307,19 @@ func (f *eskf) applyUpdate(m int) UpdateInfo {
 		copy(f.sol[:m], f.ph[i][:m])
 		cholSolve(&f.s2, m, &f.sol)
 		copy(f.k[i][:m], f.sol[:m])
+	}
+
+	// 機体パラメータの補正を凍結する。
+	//
+	// Joseph 形式 P = (I-KH)P(I-KH)^T + K R K^T は**任意の K に対して**正しいので、
+	// ゲインの行をゼロにしても共分散は整合したままになる (最適ではなくなるだけ)。
+	// これは Schmidt-Kalman (consider) フィルタと同じ扱い。
+	if f.paramsFrozen || !f.cfg.Noise.EnableParamEstimation {
+		for _, i := range paramIndices {
+			for j := 0; j < m; j++ {
+				f.k[i][j] = 0
+			}
+		}
 	}
 
 	// dx = K nu
@@ -252,14 +425,36 @@ func (f *eskf) inject() {
 	f.x.V.X += f.dx[idxVx]
 	f.x.V.Y += f.dx[idxVy]
 	f.x.Omega += f.dx[idxOmega]
-	f.x.BiasOmega += f.dx[idxBw]
 	if f.cfg.Noise.EnableSlip {
 		f.x.Slip.X += f.dx[idxSx]
 		f.x.Slip.Y += f.dx[idxSy]
 	}
+	if f.cfg.Noise.EnableGyro {
+		f.x.GyroBias += f.dx[idxBg]
+	}
+	if f.cfg.Noise.EnableParamEstimation {
+		n := f.cfg.Noise
+		f.x.Kv = clamp(f.x.Kv+f.dx[idxKv], 1-n.ParamScaleLimit, 1+n.ParamScaleLimit)
+		f.x.Kw = clamp(f.x.Kw+f.dx[idxKw], 1-n.ParamScaleLimit, 1+n.ParamScaleLimit)
+		lim := n.ParamAngleLimitDeg * math.Pi / 180
+		f.x.Ka = clamp(f.x.Ka+f.dx[idxKa], -lim, lim)
+	}
 	for i := range f.dx {
 		f.dx[i] = 0
 	}
+}
+
+// paramIndices は機体パラメータの誤差状態の位置。
+var paramIndices = [3]int{idxKv, idxKw, idxKa}
+
+func clamp(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
 
 // covPose は [x, y, theta] の共分散を取り出す。
@@ -276,7 +471,10 @@ func (f *eskf) covPose() Mat3 {
 
 // finite は状態と共分散が数値的に壊れていないかを返す。
 func (f *eskf) finite() bool {
-	vals := []float64{f.x.Theta, f.x.P.X, f.x.P.Y, f.x.V.X, f.x.V.Y, f.x.Omega, f.x.Slip.X, f.x.Slip.Y}
+	vals := [...]float64{
+		f.x.Theta, f.x.P.X, f.x.P.Y, f.x.V.X, f.x.V.Y, f.x.Omega,
+		f.x.Slip.X, f.x.Slip.Y, f.x.Kv, f.x.Kw, f.x.Ka, f.x.GyroBias,
+	}
 	for _, v := range vals {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			return false

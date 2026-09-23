@@ -22,7 +22,23 @@ type Kinematics struct {
 	// pinv は m の左擬似逆 (m^T m)^-1 m^T。最小二乗解を与える。
 	// 起動時に 1 度だけ計算し、以降ホットパスでは配列参照だけになる。
 	pinv [3][NumWheels]float64
+
+	// angleRad は取付角 [rad]、gain は s_i / r_i [1/m]。
+	// 取付角の補正をオンライン推定する経路 (機体パラメータの状態化) が
+	// 1 周期ごとに sin/cos を取り直すので、生の値を持っておく。
+	angleRad [NumWheels]float64
+	gain     [NumWheels]float64
 }
+
+// Angle は論理輪 i の取付角 [rad] を返す。
+func (k *Kinematics) Angle(i int) float64 { return k.angleRad[i] }
+
+// Gain は論理輪 i の s_i / r_i [1/m] を返す。
+// 車輪の周速から角速度への換算と符号をまとめたもの。
+func (k *Kinematics) Gain(i int) float64 { return k.gain[i] }
+
+// Arm はモーメントアーム [m] を返す。
+func (k *Kinematics) Arm() float64 { return k.cfg.MomentArmM }
 
 // NewKinematics は機体パラメータから運動学を構築する。
 func NewKinematics(cfg GeometryConfig) (*Kinematics, error) {
@@ -37,6 +53,8 @@ func NewKinematics(cfg GeometryConfig) (*Kinematics, error) {
 		// 基準形 (旧世代 STM / RAVEN): v_i = sin(a)*vx - cos(a)*vy - R*omega [m/s]
 		// これを車輪半径で割って角速度にし、符号規約を掛ける。
 		inv := cfg.WheelSigns[i] / cfg.WheelRadiusM[i]
+		k.angleRad[i] = a
+		k.gain[i] = inv
 		k.m[i][0] = s * inv
 		k.m[i][1] = -c * inv
 		k.m[i][2] = -cfg.MomentArmM * inv

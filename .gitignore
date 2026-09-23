@@ -16,7 +16,14 @@ __pycache__/
 # 開発時のビルド成果物 (誤コミット防止)
 /main
 /kick_test
+/loc_replay
+
+# 実機ログと解析結果 (容量が大きいので置かない)
+/logs/
 /trajpoc-results/
+
+# ローカルのクロスビルド成果物
+/build/
 
 # Local toolchain and verification output
 /.cache/

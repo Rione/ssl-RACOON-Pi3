@@ -19,6 +19,7 @@ func testTrajectory() Trajectory {
 func TestWheelSamplesRecoverTrueBodyVelocity(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.WheelNoiseRadS = 0 // 量子化だけ残す
+	cfg.WheelNoiseSpeedCoef = 0
 	s, err := Generate(testTrajectory(), cfg, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -51,6 +52,7 @@ func TestWheelSamplesRecoverTrueBodyVelocity(t *testing.T) {
 func TestWrongGeometryBreaksWheelInterpretation(t *testing.T) {
 	truthCfg := DefaultConfig()
 	truthCfg.WheelNoiseRadS = 0
+	truthCfg.WheelNoiseSpeedCoef = 0
 	s, err := Generate(testTrajectory(), truthCfg, 2)
 	if err != nil {
 		t.Fatal(err)
@@ -61,8 +63,10 @@ func TestWrongGeometryBreaksWheelInterpretation(t *testing.T) {
 		mutate func(*localization.GeometryConfig)
 	}{
 		{"sign flipped (plan A-5)", func(g *localization.GeometryConfig) {
+			// **既定に対して反転させる。** 既定値そのものを書くと、既定が変わった
+			// ときに黙って no-op になる (2026-09-23 に実際そうなった)。
 			for i := range g.WheelSigns {
-				g.WheelSigns[i] = -1
+				g.WheelSigns[i] = -g.WheelSigns[i]
 			}
 		}},
 		{"FL/FR swapped (plan A-4)", func(g *localization.GeometryConfig) {
@@ -70,12 +74,12 @@ func TestWrongGeometryBreaksWheelInterpretation(t *testing.T) {
 				localization.WheelFR, localization.WheelBL, localization.WheelBR, localization.WheelFL,
 			}
 		}},
-		{"wheel radius 27mm instead of 30mm (A-1)", func(g *localization.GeometryConfig) {
+		{"wheel radius -6% (A-1)", func(g *localization.GeometryConfig) {
 			for i := range g.WheelRadiusM {
-				g.WheelRadiusM[i] = 0.027
+				g.WheelRadiusM[i] *= 0.94
 			}
 		}},
-		{"moment arm 90mm instead of 75mm (A-2)", func(g *localization.GeometryConfig) {
+		{"moment arm 90mm instead of 74mm (A-2)", func(g *localization.GeometryConfig) {
 			g.MomentArmM = 0.090
 		}},
 	}
@@ -121,6 +125,7 @@ func worstRecoveryError(s *Sensors, k *localization.Kinematics) (vel, omega floa
 func TestSlipAppearsOnlyInWheels(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.WheelNoiseRadS = 0
+	cfg.WheelNoiseSpeedCoef = 0
 	cfg.WheelQuantRadS = 0
 	slip := localization.Vec2{X: 0.4, Y: -0.2}
 	cfg.Slip = ConstantSlip(slip)

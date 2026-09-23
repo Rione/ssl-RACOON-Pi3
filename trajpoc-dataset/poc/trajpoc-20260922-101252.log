@@ -1,0 +1,47 @@
+racoon-56011
+
+2026/09/22 10:12:52 Build version: v0.0.0-20260922100022-aa62de46c083
+2026/09/22 10:12:52 RACOON-Pi3 version: v0.0.0-20260922100022-aa62de46c083
+2026/09/22 10:12:52 Exporting PWM...
+2026/09/22 10:12:53 Buzzer PWM initialized: /sys/class/pwm/pwmchip1/pwm0
+DIP1: 1
+DIP2: 1
+DIP3: 1
+DIP4: 1
+GOT ID FROM DIP SW: 15
+2026/09/22 10:12:53 Local MAC for AI receive: 20:bd:1d:d7:3f:f2 (wlan0)
+2026/09/22 10:12:53 Local IP for AI receive: 172.15.0.34 (wlan0)
+2026/09/22 10:12:53 [TRAJ] reading the trajectory from stdin (JSON lines, then "END") ...
+2026/09/22 10:12:53 [TRAJ] 291 points, 4.64 s, max radius 0.60 m, max speed 0.45 m/s, max yaw rate 0.00 rad/s
+2026/09/22 10:12:53 [TRAJ] waiting for vision of blue 12 ...
+2026/09/22 10:12:53 [VISION] Listening on 224.5.23.2:10006 (team=blue id=12)
+2026/09/22 10:12:53 SPI recv frame mismatch: no valid frame in 40-byte window
+2026/09/22 10:12:53 SPI recv frame recovered
+2026/09/22 10:12:53 [TRAJ] *** RUNNING: method=ffp interp=hermite from (-206, -1174) mm, 85.9 deg. Ctrl+C to stop ***
+2026/09/22 10:12:53 Emergency stop released (InfoEmgStop: 1 -> 0)
+2026/09/22 10:12:53 Pythonプロセスを開始します（board=rock5a）。
+2026/09/22 10:12:53 Pythonプロセスが正常に開始されました。
+2026/09/22 10:12:53 API Server listening on :9191
+/usr/bin/python3: No module named camera
+2026/09/22 10:12:54 [TRAJ] t= 0.70s err=(  +45,   -3) mm cmd=( -367, +340) mm/s age=  2 ms
+2026/09/22 10:12:55 [TRAJ] t= 1.74s err=(   -4,   +9) mm cmd=( -350, -297) mm/s age=  1 ms
+DIP1: 1
+DIP2: 1
+DIP3: 1
+DIP4: 1
+HEX: 15
+2026/09/22 10:12:56 [TRAJ] t= 2.74s err=(  -25,   +5) mm cmd=( +311, -391) mm/s age=  5 ms
+2026/09/22 10:12:57 [TRAJ] t= 3.79s err=(   +8,   -7) mm cmd=( +362, +266) mm/s age=  5 ms
+2026/09/22 10:12:58 [TRAJ] t= 4.79s err=(   -0,   +1) mm cmd=(   +1,   -3) mm/s age=  9 ms
+2026/09/22 10:12:59 Emergency stop activated (InfoEmgStop: 0 -> 1)
+=== trajpoc result: method=ffp interp=hermite Kp=3.00 Kth=4.00 lead=30ms ===
+end: done (trajectory finished)
+vision frames 543, held cycles 0, vision age median 4 ms
+position error     RMS   22.3 mm   max   46.8 mm
+contour error      RMS   17.8 mm   max   40.7 mm   (distance to the path, time ignored)
+along-track mean     -6.3 mm   lag 8 ms   (negative mean = behind the reference)
+cross-track        RMS   18.9 mm
+heading error      RMS   2.16 deg  max   6.84 deg
+final (arrival)       1.2 mm    0.34 deg
+command accel RMS    1.00 m/s^2  (how jerky the command was)
+2026/09/22 10:12:59 既存のPythonプロセスを停止します。

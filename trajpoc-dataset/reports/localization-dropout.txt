@@ -1,0 +1,50 @@
+### default-dims-signs-flipped
+== /home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131552-ffp_vlead-hermite.csv (delaycomp 0 ms, slip true, wheel noise 0.300 rad/s)
+  vision があるとき: 推定 (その撮影が届く前) と vision の差 RMS 1.83 mm  0.22 deg (549 枚)
+  drop 0.80〜1.10 s (34 枚): 最大/最後の誤差 [mm]  推定 9.7/9.7  最後の vision のまま 102.2/102.2  等速で外挿 21.3/21.3  (向き -2.06 deg)
+  drop 1.80〜2.10 s (36 枚): 最大/最後の誤差 [mm]  推定 4.3/4.3  最後の vision のまま 115.1/115.1  等速で外挿 32.9/32.9  (向き -2.74 deg)
+  drop 2.80〜3.10 s (34 枚): 最大/最後の誤差 [mm]  推定 8.3/8.3  最後の vision のまま 128.4/128.4  等速で外挿 21.7/21.7  (向き 2.24 deg)
+  stats: wheel 750, vision 606, too old 0, future 0, resets 0, huber 222
+== /home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131559-ffp_vlead-hermite.csv (delaycomp 0 ms, slip true, wheel noise 0.300 rad/s)
+  vision があるとき: 推定 (その撮影が届く前) と vision の差 RMS 0.21 mm  0.26 deg (403 枚)
+  drop 0.80〜1.10 s (34 枚): 最大/最後の誤差 [mm]  推定 2.6/2.6  最後の vision のまま 1.7/0.8  等速で外挿 2.3/2.3  (向き 0.82 deg)
+  drop 1.80〜2.10 s (34 枚): 最大/最後の誤差 [mm]  推定 1.8/1.5  最後の vision のまま 2.0/2.0  等速で外挿 2.5/2.0  (向き 0.34 deg)
+  drop 2.80〜3.10 s (35 枚): 最大/最後の誤差 [mm]  推定 1.4/1.4  最後の vision のまま 1.5/1.5  等速で外挿 4.0/4.0  (向き -0.76 deg)
+  stats: wheel 593, vision 463, too old 0, future 0, resets 0, huber 42
+== /home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131612-ffp_vlead-hermite.csv (delaycomp 0 ms, slip true, wheel noise 0.300 rad/s)
+  vision があるとき: 推定 (その撮影が届く前) と vision の差 RMS 1.67 mm  0.25 deg (1091 枚)
+  drop 0.80〜1.10 s (34 枚): 最大/最後の誤差 [mm]  推定 14.7/14.7  最後の vision のまま 98.4/98.4  等速で外挿 17.1/17.1  (向き -0.97 deg)
+  drop 1.80〜2.10 s (33 枚): 最大/最後の誤差 [mm]  推定 5.4/5.4  最後の vision のまま 113.4/113.4  等速で外挿 20.5/20.5  (向き -2.31 deg)
+  drop 2.80〜3.10 s (36 枚): 最大/最後の誤差 [mm]  推定 8.2/7.6  最後の vision のまま 129.2/129.2  等速で外挿 23.1/23.1  (向き 1.91 deg)
+  stats: wheel 1349, vision 1150, too old 0, future 0, resets 0, huber 420
+== /home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131620-ffp_vlead-hermite.csv (delaycomp 0 ms, slip true, wheel noise 0.300 rad/s)
+  vision があるとき: 推定 (その撮影が届く前) と vision の差 RMS 1.77 mm  0.40 deg (548 枚)
+  drop 0.80〜1.10 s (35 枚): 最大/最後の誤差 [mm]  推定 10.4/9.3  最後の vision のまま 106.3/106.3  等速で外挿 25.0/25.0  (向き 0.35 deg)
+  drop 1.80〜2.10 s (34 枚): 最大/最後の誤差 [mm]  推定 10.2/10.2  最後の vision のまま 124.9/124.9  等速で外挿 13.0/13.0  (向き 2.19 deg)
+  drop 2.80〜3.10 s (33 枚): 最大/最後の誤差 [mm]  推定 6.9/6.9  最後の vision のまま 121.8/121.8  等速で外挿 14.1/14.1  (向き 2.25 deg)
+  stats: wheel 758, vision 608, too old 0, future 0, resets 0, huber 239
+### geometry-racoon-56011
+== /home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131552-ffp_vlead-hermite.csv (delaycomp 0 ms, slip true, wheel noise 0.300 rad/s)
+  vision があるとき: 推定 (その撮影が届く前) と vision の差 RMS 1.76 mm  0.21 deg (549 枚)
+  drop 0.80〜1.10 s (34 枚): 最大/最後の誤差 [mm]  推定 4.6/4.6  最後の vision のまま 102.2/102.2  等速で外挿 21.3/21.3  (向き -0.77 deg)
+  drop 1.80〜2.10 s (36 枚): 最大/最後の誤差 [mm]  推定 1.9/0.4  最後の vision のまま 115.1/115.1  等速で外挿 32.9/32.9  (向き -0.15 deg)
+  drop 2.80〜3.10 s (34 枚): 最大/最後の誤差 [mm]  推定 2.6/1.4  最後の vision のまま 128.4/128.4  等速で外挿 21.7/21.7  (向き 2.05 deg)
+  stats: wheel 750, vision 606, too old 0, future 0, resets 0, huber 206
+== /home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131559-ffp_vlead-hermite.csv (delaycomp 0 ms, slip true, wheel noise 0.300 rad/s)
+  vision があるとき: 推定 (その撮影が届く前) と vision の差 RMS 0.21 mm  0.25 deg (403 枚)
+  drop 0.80〜1.10 s (34 枚): 最大/最後の誤差 [mm]  推定 2.8/2.8  最後の vision のまま 1.7/0.8  等速で外挿 2.3/2.3  (向き 0.09 deg)
+  drop 1.80〜2.10 s (34 枚): 最大/最後の誤差 [mm]  推定 1.8/1.6  最後の vision のまま 2.0/2.0  等速で外挿 2.5/2.0  (向き 0.52 deg)
+  drop 2.80〜3.10 s (35 枚): 最大/最後の誤差 [mm]  推定 1.5/1.5  最後の vision のまま 1.5/1.5  等速で外挿 4.0/4.0  (向き -0.11 deg)
+  stats: wheel 593, vision 463, too old 0, future 0, resets 0, huber 45
+== /home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131612-ffp_vlead-hermite.csv (delaycomp 0 ms, slip true, wheel noise 0.300 rad/s)
+  vision があるとき: 推定 (その撮影が届く前) と vision の差 RMS 1.60 mm  0.24 deg (1091 枚)
+  drop 0.80〜1.10 s (34 枚): 最大/最後の誤差 [mm]  推定 9.7/9.7  最後の vision のまま 98.4/98.4  等速で外挿 17.1/17.1  (向き 0.28 deg)
+  drop 1.80〜2.10 s (33 枚): 最大/最後の誤差 [mm]  推定 3.4/2.0  最後の vision のまま 113.4/113.4  等速で外挿 20.5/20.5  (向き 0.23 deg)
+  drop 2.80〜3.10 s (36 枚): 最大/最後の誤差 [mm]  推定 1.7/0.8  最後の vision のまま 129.2/129.2  等速で外挿 23.1/23.1  (向き 1.74 deg)
+  stats: wheel 1349, vision 1150, too old 0, future 0, resets 0, huber 418
+== /home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/poc/trajpoc-20260922-131620-ffp_vlead-hermite.csv (delaycomp 0 ms, slip true, wheel noise 0.300 rad/s)
+  vision があるとき: 推定 (その撮影が届く前) と vision の差 RMS 1.69 mm  0.35 deg (548 枚)
+  drop 0.80〜1.10 s (35 枚): 最大/最後の誤差 [mm]  推定 6.9/5.5  最後の vision のまま 106.3/106.3  等速で外挿 25.0/25.0  (向き -1.43 deg)
+  drop 1.80〜2.10 s (34 枚): 最大/最後の誤差 [mm]  推定 4.8/4.8  最後の vision のまま 124.9/124.9  等速で外挿 13.0/13.0  (向き -0.13 deg)
+  drop 2.80〜3.10 s (33 枚): 最大/最後の誤差 [mm]  推定 2.9/1.1  最後の vision のまま 121.8/121.8  等速で外挿 14.1/14.1  (向き -0.11 deg)
+  stats: wheel 758, vision 608, too old 0, future 0, resets 0, huber 250

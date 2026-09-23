@@ -147,9 +147,9 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 		fail("wheel check: %v", err)
 	}
 	// 自己位置推定を横で回して記録する (制御には使わない。IMU あり/なしの比較に使う)。
+	// 既定の機体パラメータと雑音は実機の記録から決まっている
+	// (docs/self-localization-research-20260923.md)。ここでは上書きしない。
 	locCfg := localization.DefaultConfig()
-	locCfg.Geometry = trajpoc.PoCGeometry()
-	locCfg.Noise.WheelNoise = 0.3 // 実機の記録から (docs/traj-poc-log.md §5-17)
 	if est, err := localization.NewEstimator(locCfg, localization.EstimatorOptions{}); err != nil {
 		fail("estimator: %v", err)
 	} else {

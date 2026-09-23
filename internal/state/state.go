@@ -269,6 +269,23 @@ var (
 	LocVisionIface string
 	// LocIdent は機体パラメータ同定の加振を実行するか。ロボットが自走する。
 	LocIdent bool
+	// NoSelfUpdate は起動時の自己更新を行わないか。
+	//
+	// **実験中は必ず立てること。** 自己更新は新しいリリースを見つけると
+	// 実行中のバイナリを上書きして os.Exit するので、走行中に突然死ぬ。
+	// 開発ビルドは擬似バージョン (v0.0.0-<日時>-<hash>) になるが、
+	// これは isDevVersion の判定をすり抜ける (先頭が "-0." ではないため)。
+	NoSelfUpdate bool
+	// LocEstimate は自己位置推定を機上で実際に回すか。
+	//
+	// **走行機能には一切影響しない。** 推定は観測に徹し、結果はログと
+	// HTTP に出すだけ。制御へ繋ぐのはプロトコルが決まってから (計画 P6)。
+	LocEstimate bool
+	// LocGeometry は機体パラメータの JSON パス。空なら既定値。
+	LocGeometry string
+	// LocVisionDelayMs は vision の定数遅延の補償 [ms]。
+	// loc_replay が測った値を入れる。
+	LocVisionDelayMs float64
 )
 
 // localizationShutdown は計測ログを閉じる後始末。

@@ -31,9 +31,25 @@ type bufferEntry struct {
 	// wheels はこの周期で取り込んだ車輪観測 (論理輪番号の順)。
 	wheels    [NumWheels]float64
 	hasWheels bool
-	// gyro はこの周期で取り込んだジャイロのヨーレート [rad/s]。
-	gyro    float64
+	// gyroZ はこの周期で取り込んだジャイロのヨーレート [rad/s]。
+	gyroZ   float64
 	hasGyro bool
+	// vision はこの時刻で取り込んだ vision の姿勢。
+	//
+	// **再フィルタで取りこぼさないために保存する。** これが無いと、
+	// 巻き戻したときに後ろにあった vision の更新が消え、共分散が
+	// 開きっぱなしになる (実機の結線テストで sigma が 224 mm まで膨らんで気づいた)。
+	vision Pose2
+	// visionStamp は vision の観測時刻。**エントリの時刻とは別に持つ。**
+	// 同じにすると再フィルタのたびに最大 1 周期ぶん遅い時刻で当て直すことになり、
+	// それが系統的な遅れとして位置に残る。
+	visionStamp Stamp
+	hasVision   bool
+	// zupt はこの周期で停止の疑似観測を当てたか。
+	//
+	// 判定そのものは現在時刻でしか行わない (vision の鮮度を使うため)。
+	// 再フィルタで同じ結果を再現できるよう、判定の結果だけを保存しておく。
+	zupt bool
 }
 
 // ringBuffer は固定長の循環バッファ。起動時に確保して使い回す。

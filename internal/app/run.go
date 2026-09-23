@@ -84,7 +84,10 @@ func Run() {
 	log.Printf("RACOON-Pi3 version: %s", state.Version)
 
 	// PoC の最中に自己更新が走ると、上書き後に os.Exit で即死し、STM は最後の速度で走り続ける。
-	if !trajPoc.enabled {
+	if state.NoSelfUpdate || trajPoc.enabled {
+		// 実験中に走行中のバイナリが上書きされて os.Exit するのを防ぐ。
+		log.Println("Self-update disabled (-noupdate / -trajpoc)")
+	} else {
 		go upgrade.ConfirmAndSelfUpdate()
 	}
 
@@ -147,6 +150,10 @@ func parseFlags() {
 	flag.StringVar(&state.LocVisionAddr, "visionaddr", "", "SSL-Visionのマルチキャスト (既定: 224.5.23.2:10694)")
 	flag.StringVar(&state.LocVisionIface, "visioniface", "", "SSL-Vision受信に使うNIC名。空ならシステム既定")
 	flag.BoolVar(&state.LocIdent, "locident", false, "機体パラメータ同定の加振を実行する。ロボットが自走するので注意")
+	flag.BoolVar(&state.NoSelfUpdate, "noupdate", false, "起動時の自己更新を行わない (実験中は必ず指定する)")
+	flag.BoolVar(&state.LocEstimate, "locestimate", false, "自己位置推定を機上で回す (走行機能には影響しない)")
+	flag.StringVar(&state.LocGeometry, "locgeometry", "", "機体パラメータの JSON パス (既定: 組み込みの有効値)")
+	flag.Float64Var(&state.LocVisionDelayMs, "locvisiondelay", 0, "vision の定数遅延の補償 [ms] (loc_replay が測った値)")
 
 	// 時刻つき軌道追従の PoC (docs/traj-poc.md)。
 	registerTrajPocFlags()
@@ -175,6 +182,9 @@ func parseFlags() {
 	}
 	if state.LocIdent {
 		log.Println("Localization: identification excitation enabled (-locident); the robot will drive itself")
+	}
+	if state.LocEstimate {
+		log.Println("Localization: the estimator runs on the robot (-locestimate); see [EST] lines and /localization")
 	}
 }
 
