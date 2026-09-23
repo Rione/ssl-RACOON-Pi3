@@ -190,22 +190,8 @@ func (r *SPIRecorder) Record(tx, rx []byte, before, after time.Time) Sample {
 func (r *SPIRecorder) fillSample(out *Sample, transfer localization.Stamp) {
 	// 車輪は SPI 上の並びのまま返す。論理輪番号への並べ替えは
 	// localization.Kinematics.SlotsToLogical が設定に従って行う。
-	out.Wheel.Stamp = transfer.Add(r.bind.WheelTimeOffset)
-	for slot, idx := range r.bind.WheelSlots {
-		out.Wheel.Omega[slot] = r.values.At(idx)
-		out.WheelRaw[slot] = r.values.RawAt(idx)
-	}
-
-	out.IMU.Stamp = transfer.Add(r.bind.ImuTimeOffset)
-	if r.bind.HasGyro() {
-		out.IMU.GyroZ = r.values.At(r.bind.GyroZ)
-		out.IMU.HasGyro = true
-	}
-	if r.bind.HasAccel() {
-		out.IMU.Accel.X = r.values.At(r.bind.AccelX)
-		out.IMU.Accel.Y = r.values.At(r.bind.AccelY)
-		out.IMU.HasAccel = true
-	}
+	r.fillWheelSample(out, transfer)
+	r.fillImuSample(out, transfer)
 }
 
 func (r *SPIRecorder) log(transfer localization.Stamp, spi loclog.SPIRecord, tx []byte) {

@@ -15,10 +15,18 @@ cmd/
   spi_test/            # Rock5A SPI 診断ツール
 internal/
   app/                 # 起動・goroutine オーケストレーション
-  state/               # 共有状態・データ構造
+  localization/        # 車輪・Vision による自己位置推定（IMU 融合は未実装）
+  control/             # 経路補間・追従・速度フィードバック・制限
+  supervisor/          # モード・指令期限・推定鮮度の判定
+  locadapter/          # センサー受信値から推定入力への変換
+  stmframe/            # STM フレーム定義・デコード
+  timesync/            # 観測時刻の同期
+  loclog/              # 記録・再生
+  locsim/              # 推定器のシミュレーション検証
+  state/               # 既存通信経路の共有状態・データ構造
   link/                # UART/SPI 共通リンクロジック
   receive/             # AI / カメラ UDP 受信
-  mw/                  # RACOON-MW へのマルチキャスト送信
+  mw/                  # RACOON-MW への状態送信・推定結果の受け渡し型
   api/                 # HTTP API
   upgrade/             # 自動アップデート
   pi4/                 # Pi 4B 専用（UART, go-rpio）
@@ -30,6 +38,9 @@ camera/                # カメラ処理（Python）
   transport/           # UDP 送信・エンコード
   yolo/                # git submodule: Rione/ssl-YOLO-Detection
 ```
+
+責務・接続経路・実装済み範囲は [ローカル制御アーキテクチャ](docs/architecture.md) を参照してください。
+新しい制御周期の接続点はハードウェア非依存です。実機の `Run` への接続は未実施です。
 
 ## クローン
 

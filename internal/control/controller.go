@@ -5,7 +5,6 @@ package control
 import (
 	"fmt"
 	"math"
-	"sort"
 
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
@@ -48,15 +47,6 @@ import (
 //     現仕様はゼロ指令。位置保持/終端速度維持への変更時はテストと文書も更新する。
 // このパッケージにはソケット・ハードウェア依存・time.Now()を持ち込まない。
 
-// Node は未来の経路点。Stamp は送信時刻ではなく到達予定時刻であり、
-// 呼び出し前に Estimate.Stamp と同じロボット側の単調時間軸へ変換する。
-type Node struct {
-	Stamp   localization.Stamp
-	Pose    localization.Pose2 // ワールド系 [m, m, rad]
-	VelBody localization.Vec2  // このノードの姿勢を基準とする目標速度 [m/s]
-	YawRate float64            // 目標角速度 [rad/s]
-}
-
 // Config のゲインは [1/s]、速度上限は [m/s, rad/s]。
 // ゲインは非負、上限は正の有限値を指定する。実機に合わせて調整すること。
 type Config struct {
@@ -97,15 +87,9 @@ func New(nodes []Node, config Config) (*Controller, error) {
 		config.PositionGain < 0 || config.HeadingGain < 0 || config.MaxSpeed <= 0 || config.MaxYawRate <= 0 {
 		return nil, fmt.Errorf("invalid controller gains or velocity limits")
 	}
-	copyNodes := append([]Node(nil), nodes...)
-	for i, n := range copyNodes {
-		if n.Stamp < 0 || !finite(n.Pose.X, n.Pose.Y, n.Pose.Theta, n.VelBody.X, n.VelBody.Y, n.YawRate) {
-			return nil, fmt.Errorf("invalid trajectory node %d", i)
-		}
-		if i > 0 && n.Stamp <= copyNodes[i-1].Stamp {
-			return nil, fmt.Errorf("node %d arrival time must strictly increase", i)
-		}
-		copyNodes[i].Pose.Theta = localization.WrapAngle(n.Pose.Theta)
+	copyNodes, err := validateNodes(nodes)
+	if err != nil {
+		return nil, err
 	}
 	return &Controller{nodes: copyNodes, config: config}, nil
 }
@@ -125,26 +109,17 @@ func (c *Controller) Calculate(estimate localization.Estimate) (Command, Phase, 
 		!finite(estimate.Pose.X, estimate.Pose.Y, estimate.Pose.Theta) {
 		return Command{}, Waiting, fmt.Errorf("invalid pose estimate")
 	}
-	now := estimate.Stamp
-	if now < c.nodes[0].Stamp {
-		return Command{}, Waiting, nil
+	ref, phase := sampleTrajectory(c.nodes, estimate.Stamp)
+	if phase != Tracking {
+		return Command{}, phase, nil
 	}
-	if now >= c.nodes[len(c.nodes)-1].Stamp {
-		return Command{}, Finished, nil
-	}
-	i := sort.Search(len(c.nodes), func(i int) bool { return c.nodes[i].Stamp > now })
-	a, b := c.nodes[i-1], c.nodes[i]
-	u := float64(now-a.Stamp) / float64(b.Stamp-a.Stamp)
-	lerp := func(a, b float64) float64 { return (1-u)*a + u*b }
-	x, y := lerp(a.Pose.X, b.Pose.X), lerp(a.Pose.Y, b.Pose.Y)
-	theta := localization.WrapAngle(a.Pose.Theta + u*localization.AngleDiff(b.Pose.Theta, a.Pose.Theta))
-	va := localization.Rotate(a.Pose.Theta, a.VelBody)
-	vb := localization.Rotate(b.Pose.Theta, b.VelBody)
+	x, y, theta := ref.Pose.X, ref.Pose.Y, ref.Pose.Theta
+
 	v := localization.Vec2{
-		X: lerp(va.X, vb.X) + c.config.PositionGain*(x-estimate.Pose.X),
-		Y: lerp(va.Y, vb.Y) + c.config.PositionGain*(y-estimate.Pose.Y),
+		X: ref.VelWorld.X + c.config.PositionGain*(x-estimate.Pose.X),
+		Y: ref.VelWorld.Y + c.config.PositionGain*(y-estimate.Pose.Y),
 	}
-	w := lerp(a.YawRate, b.YawRate) + c.config.HeadingGain*localization.AngleDiff(theta, localization.WrapAngle(estimate.Pose.Theta))
+	w := ref.YawRate + c.config.HeadingGain*localization.AngleDiff(theta, localization.WrapAngle(estimate.Pose.Theta))
 	// 有限入力でも演算がオーバーフローした場合は指令を出さない。
 	speed := math.Hypot(v.X, v.Y)
 	if !finite(v.X, v.Y, w, speed) {

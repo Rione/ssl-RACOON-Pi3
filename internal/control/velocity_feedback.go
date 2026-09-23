@@ -2,7 +2,6 @@ package control
 
 import (
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
@@ -145,19 +144,4 @@ func (c *Controller) CalculateWithFeedback(estimate localization.Estimate, now l
 	command.VelBody, _ = limitVector(command.VelBody, c.config.MaxSpeed)
 	command.YawRate = limitScalar(command.YawRate, c.config.MaxYawRate)
 	return command, phase, nil
-}
-
-func limitScalar(value, limit float64) float64 { return math.Max(-limit, math.Min(limit, value)) }
-
-func limitVector(v localization.Vec2, limit float64) (localization.Vec2, bool) {
-	speed := math.Hypot(v.X, v.Y)
-	if !finite(v.X, v.Y, speed) {
-		return localization.Vec2{}, false
-	}
-	if speed > limit {
-		scale := limit / speed
-		v.X *= scale
-		v.Y *= scale
-	}
-	return v, true
 }
