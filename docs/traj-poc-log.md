@@ -1,6 +1,6 @@
 # 時刻つき軌道追従 PoC — 作業記録と現在地
 
-**最終更新**: 2026-09-22 14:40 頃 (RAVEN との比較まで)
+**最終更新**: 2026-09-23 (master の新しい構成へ移した)
 **目的**: 会話の要約 (auto-compact) の後に、この 1 枚を読めば作業を再開できるようにする。
 手順や設計は [`traj-poc.md`](./traj-poc.md)。ここは「何をやって、何が分かって、次に何をするか」。
 
@@ -49,7 +49,11 @@ traj_gen (PC) ──JSON Lines + END──> ssh ──> racoon-pi3 -trajpoc (ロ
 
 - 点の中身は RAVEN の `TimedTrajectoryPoint` と同じ (x, y [mm], theta [rad], t [ns])。t は先頭からの相対、座標は開始姿勢に対する相対
 - 軌道の形: line / square / circle / fig8 / **turn (その場で回る。size=角度 rad、speed=角速度、accel=角加速度)** / **hold (止まったまま size 秒)**
-- 手法: `p` (位置 P) / `ffp` (参照速度の先回し + P) / `ffp_lead` (+ vision の古さの外挿と先読み) / **`ffp_vlead` (速度の先回しだけ `-trajlead` 先)**。補間 `hermite` (既定) / `linear`
+- 手法: `p` (位置 P) / `ffp` (参照速度の先回し + P) / **`ffp_vlead` (速度の先回しだけ `-trajlead` 先)**。
+  **2026-09-23 に master の新しい構成へ移した**: 参照の補間と追従の計算は本番の `internal/control`、安全の判定は `internal/supervisor`。
+  PoC に残したのは軌道生成・記録・指標・止まり際の試作だけ。手法は「先回しの有無 (ノードの速度を 0 にするか)」と
+  `control.Config.VelocityLead` で表す。位置まで先読みする `ffp_lead` と hermite 補間は、効果が無かったので消した
+  (机上の数字は移す前と一致: p 118.9 mm・遅れ 275 ms、ffp 27.3 mm・30 ms、ffp_vlead 22.8 mm・−8 ms)
 - 既定: Kp 3.0, Kth 4.0, 先読み 30 ms, 上限 0.5 m/s・2.0 rad/s・2.0 m/s²、枠 1.0 m (+0.2 m で打ち切り)、vision 250 ms で 0・1 s で打ち切り
 - 回し方 (いつもこの形で回している):
   ```bash

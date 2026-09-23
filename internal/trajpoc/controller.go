@@ -3,47 +3,47 @@ package trajpoc
 import (
 	"fmt"
 	"math"
+	"time"
 
+	"github.com/Rione/ssl-RACOON-Pi3/internal/control"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
 // Method は参照から速度を作る手法。PoC で比べる本体。
+// Method は比べる追従の手法。中身は control.Config の組み合わせで表す。
+//
+//	p         先回し無し (位置・向きの P だけ)。参照より遅れる (実測で 294 ms)
+//	ffp       参照の速度を先回し + P
+//	ffp_vlead 先回しの速度を「指令が効く頃」の参照から取る (Config.Lead)。実機で最良
+//
+// 位置の目標まで先へずらす形 (以前の ffp_lead) は実機で効果が無かったので消した (§5-8)。
 type Method string
 
 const (
-	// MethodP は位置の P 制御だけ。参照速度を使わないので、走行中は
-	// 「速度 / Kp」だけ遅れ続ける。ベースライン。
-	MethodP Method = "p"
-	// MethodFFP は参照速度を先回し (フィードフォワード) し、位置の誤差を P で閉じる。
-	// Pi2 の feat/#2-set-velocity (internal/control) と同じ形。
-	MethodFFP Method = "ffp"
-	// MethodFFPLead は MethodFFP に遅れ補償を足したもの。
-	//   - vision の位置は撮影時刻のものなので、直前の指令で「今」まで進めてから誤差を取る
-	//   - 指令が効くまでの遅れ (Lead) だけ先の参照を狙う
-	MethodFFPLead Method = "ffp_lead"
-	// MethodFFPVelLead は速度の先回しだけを Lead 先の参照から取る。位置の目標は今の時刻のまま、
-	// vision の位置の外挿もしない。指令が効くまでの遅れで速度の向きが古くなり、曲がりで外へ
-	// 膨らむ (と考えられる) 分だけを打ち消す。遅れと横滑りを見分けるための手法。
+	MethodP          Method = "p"
+	MethodFFP        Method = "ffp"
 	MethodFFPVelLead Method = "ffp_vlead"
 )
 
 // ParseMethod は文字列を Method にする。
 func ParseMethod(s string) (Method, error) {
 	switch Method(s) {
-	case MethodP, MethodFFP, MethodFFPLead, MethodFFPVelLead:
+	case MethodP, MethodFFP, MethodFFPVelLead:
 		return Method(s), nil
 	}
-	return "", fmt.Errorf("unknown method %q (p|ffp|ffp_lead|ffp_vlead)", s)
+	return "", fmt.Errorf("unknown method %q (p|ffp|ffp_vlead)", s)
 }
+
+// FeedForward は参照の速度を先回しする手法か。
+func (m Method) FeedForward() bool { return m != MethodP }
 
 // Config は PoC の設定。ゲインは [1/s]、速度・加速度は SI。
 type Config struct {
 	Method Method
-	Interp Interp
 
 	Kp   float64 // 位置の P ゲイン [1/s]
 	Kth  float64 // 向きの P ゲイン [1/s]
-	Lead float64 // MethodFFPLead で先を狙う秒 (指令が効くまでの遅れ) [s]
+	Lead float64 // MethodFFPVelLead で先回しの速度を取る秒 (指令が効くまでの遅れ) [s]
 
 	// 安全の枠。超えた指令は削り、枠の外へ出たら止める。
 	MaxSpeed    float64 // 並進速度の上限 [m/s]
@@ -90,8 +90,8 @@ func DefaultNearGoal() NearGoalConfig {
 // DefaultConfig は最初の実機試験用の保守的な設定。
 func DefaultConfig() Config {
 	return Config{
-		Method: MethodFFP, Interp: InterpHermite,
-		Kp: 3.0, Kth: 4.0, Lead: 0.03,
+		Method: MethodFFP,
+		Kp:     3.0, Kth: 4.0, Lead: 0.03,
 		MaxSpeed: 0.5, MaxYawRate: 2.0, MaxAccel: 2.0,
 		Fence: 1.0, FenceMargin: 0.2,
 		VisionHoldAge: 0.25, VisionAbortAge: 1.0,
@@ -122,33 +122,32 @@ func (c Config) Validate(rel []Knot) error {
 	return nil
 }
 
-// command は手法ごとの生の指令 (ワールド系、制限前)。
-// pose は vision の姿勢、age はその古さ [s]、prev は直前に出した指令。
-func command(c Config, ref *Reference, t float64, pose localization.Pose2, age float64,
-	prevVel localization.Vec2, prevOmega float64) (vel localization.Vec2, omega float64, bodyTheta float64) {
-	p := localization.Vec2{X: pose.X, Y: pose.Y}
-	th := pose.Theta
-	target := ref.At(t)
-	switch c.Method {
-	case MethodP:
-		target.Vel = localization.Vec2{}
-		target.YawRate = 0
-	case MethodFFPLead:
-		// vision は撮影時刻の姿勢。直前の指令で今まで進めてから誤差を取る。
-		p.X += prevVel.X * age
-		p.Y += prevVel.Y * age
-		th = localization.WrapAngle(th + prevOmega*age)
-		target = ref.At(t + c.Lead)
-	case MethodFFPVelLead:
-		ahead := ref.At(t + c.Lead)
-		target.Vel, target.YawRate = ahead.Vel, ahead.YawRate
+// ControlConfig は本番の追従器 (internal/control) に渡す設定にする。
+// 先読みは MethodFFPVelLead のときだけ効かせる。
+func (c Config) ControlConfig() control.Config {
+	cfg := control.Config{
+		PositionGain: c.Kp,
+		HeadingGain:  c.Kth,
+		MaxSpeed:     c.MaxSpeed,
+		MaxYawRate:   c.MaxYawRate,
 	}
+	if c.Method == MethodFFPVelLead {
+		cfg.VelocityLead = time.Duration(c.Lead * float64(time.Second))
+	}
+	return cfg
+}
+
+// holdCommand は軌道が終わった後に最後の点へ留まる指令 (ワールド系)。
+//
+// 本番の control は終端の後にゼロを返す (計画側が止まる軌道を作る前提)。PoC は到着の精度を測るために、
+// 終端の姿勢へ P で寄せ続ける。この保持は実験のためのもので、本番の経路には入れていない。
+func holdCommand(c Config, goal control.Reference, pose localization.Pose2) (vel localization.Vec2, omega float64) {
 	vel = localization.Vec2{
-		X: target.Vel.X + c.Kp*(target.Pos.X-p.X),
-		Y: target.Vel.Y + c.Kp*(target.Pos.Y-p.Y),
+		X: c.Kp * (goal.Pose.X - pose.X),
+		Y: c.Kp * (goal.Pose.Y - pose.Y),
 	}
-	omega = target.YawRate + c.Kth*localization.AngleDiff(target.Theta, th)
-	return vel, omega, th
+	omega = c.Kth * localization.AngleDiff(goal.Pose.Theta, pose.Theta)
+	return vel, omega
 }
 
 // nearGoal は軌道が終わった後の寄せ方。pose は vision の位置に「出したがまだ vision に現れていない指令」を
@@ -156,10 +155,10 @@ func command(c Config, ref *Reference, t float64, pose localization.Pose2, age f
 // まだ効いていない指令を見落とさない (v1 は vision の位置で止め、遅れて効いた指令で 12 mm 流れた)。
 // ゴールまで Radius 以内なら √ブレーキ則の速度 (下限 MinSpeed) でゴールへ向かい、不感帯に入ったら止める。
 // stopped は前回止めていたか (ヒステリシス用)。使わないとき (範囲外・無効) は ok=false。
-func nearGoal(c NearGoalConfig, goal RefSample, pose localization.Pose2, stopped bool) (vel localization.Vec2, omega float64, nowStopped, ok bool) {
-	dx, dy := goal.Pos.X-pose.X, goal.Pos.Y-pose.Y
+func nearGoal(c NearGoalConfig, goal control.Reference, pose localization.Pose2, stopped bool) (vel localization.Vec2, omega float64, nowStopped, ok bool) {
+	dx, dy := goal.Pose.X-pose.X, goal.Pose.Y-pose.Y
 	d := math.Hypot(dx, dy)
-	he := localization.AngleDiff(goal.Theta, pose.Theta)
+	he := localization.AngleDiff(goal.Pose.Theta, pose.Theta)
 	if !c.Enabled || d > c.Radius {
 		return localization.Vec2{}, 0, false, false
 	}

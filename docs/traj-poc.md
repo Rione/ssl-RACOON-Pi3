@@ -34,11 +34,11 @@ END
 |---|---|
 | `p` | 位置の P 制御だけ。参照速度を使わないので走行中は「速度 / Kp」だけ遅れ続ける。ベースライン |
 | `ffp` | 参照速度を先回し (FF) し、位置の誤差を P で閉じる。Pi2 の `internal/control` と同じ形 |
-| `ffp_lead` | `ffp` + 遅れ補償。vision の位置を直前の指令で「今」まで進め、`-trajlead` だけ先の参照を狙う |
+| `ffp_vlead` | `ffp` + 先回しの速度だけ `-trajlead` 先の参照から取る (実機で最良。`control.Config.VelocityLead`) |
 | `ffp_vlead` | 速度の先回しだけを `-trajlead` 先の参照から取る。位置の目標は今のまま、外挿もしない。曲がりで外へ膨らむのが「指令の向きの遅れ」か「横滑り」かを見分けるための手法 |
 
-`-trajinterp` で点の間の埋め方も選べる。`linear` は速度が区間ごとの階段 (RAVEN の OC が差分で
-速度を作るのと同じ)、`hermite` は前後の点から速度を決めて滑らかに結ぶ。
+点の間は本番の追従器 (`internal/control`) と同じ線形補間。速度は点列から中心差分で作って
+ノード (`control.Node`) に入れる。以前あった hermite 補間は、机上でも実機でも差が出なかったので消した。
 
 ### 机上シミュレーションでの見込み
 
@@ -50,8 +50,8 @@ vision の遅延 30 ms) で 8 の字 (0.45 m/s) を走らせた結果を出す�
 |---|---|---|---|
 | p | 119 mm | 7 mm | 276 ms |
 | ffp | 27 mm | 23 mm | 30 ms |
-| ffp_lead (先読み 20〜40 ms) | 23 mm | 21 mm | ±11 ms |
-| ffp_lead (先読み 80 ms) | 31 mm | 21 mm | −55 ms (先走り) |
+| ffp_vlead (先読み 40 ms) | 22 mm | 19 mm | −13 ms |
+| ffp_vlead (先読み 80 ms) | 16 mm | 12 mm | −23 ms |
 
 - 先読みは大きすぎると先走る。実機では `-trajlead` を振って決める (既定 30 ms は仮の値)
 - **輪郭誤差 (経路の形からのずれ) は先読みでは変わらない**。曲がりで内側へ切れ込むのは遅れではなく
@@ -101,9 +101,9 @@ scripts/trajpoc.sh restore       # 終わったら Pi2 のサービスを起動�
 ### 最初の数回の進め方
 
 1. `-shape line -size 0.3 -speed 0.2` の `ffp` で、動き出し・止まり方・安全停止 (途中で Ctrl+C) を確かめる
-2. 同じ軌道で `p` / `ffp` / `ffp_lead` を比べる
+2. 同じ軌道で `p` / `ffp` / `ffp_vlead` を比べる
 3. `-shape square` / `circle` / `fig8` と速度を上げて、差が開くところを見る
-4. `ffp_lead` の `-trajlead` を 0〜80 ms で振る
+4. `ffp_vlead` の `-trajlead` を 0〜120 ms で振る
 
 ### 出てくる指標
 

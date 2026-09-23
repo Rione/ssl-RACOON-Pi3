@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Rione/ssl-RACOON-Pi3/internal/control"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/trajpoc"
 )
@@ -49,7 +50,8 @@ func main() {
 		knots[i].T -= float64(t0) * 1e-9
 	}
 	cfg := trajpoc.DefaultConfig()
-	ref, err := trajpoc.NewReference(knots, cfg.Interp)
+	// 評価は本番と同じ追従器の参照で行う (RAVEN が実際に追った点列を control のノードにする)。
+	ctl, err := control.New(trajpoc.ToNodes(knots, 0, true), cfg.ControlConfig())
 	check(err)
 
 	// RAVEN の指令 (tick ごと)
@@ -92,13 +94,13 @@ func main() {
 		s := trajpoc.Sample{T: ta, TV: tv, Age: ta - tv, Capture: localization.Stamp(capNs),
 			Pose:     localization.Pose2{X: num(r["x_mm"]) / 1000, Y: num(r["y_mm"]) / 1000, Theta: num(r["theta_rad"])},
 			CmdWorld: c, CmdOmega: w}
-		s.Ref = ref.At(tv)
+		s.Ref, s.Phase = refAt(ctl, knots, localization.Stamp(tv*1e9))
 		samples = append(samples, s)
 	}
 	if len(samples) == 0 {
 		check(fmt.Errorf("no vision frames inside the run (clock mismatch?)"))
 	}
-	met := trajpoc.ComputeMetrics(samples, ref.Knots())
+	met := trajpoc.ComputeMetrics(samples, knots)
 	cfg.Method = "raven_oc"
 	fmt.Print(met.Format(cfg, trajpoc.Done, "RAVEN optimal-control tracker ("+*ravenPath+")"))
 	if *outCSV != "" {
@@ -108,6 +110,19 @@ func main() {
 		f.Close()
 		fmt.Println("csv:", *outCSV)
 	}
+}
+
+// refAt は評価用の参照。control は軌道の前後でゼロの参照を返すので、
+// 端の点で静止しているものとして埋める (PoC 側の Driver と同じ扱い)。
+func refAt(ctl *control.Controller, knots []trajpoc.Knot, at localization.Stamp) (control.Reference, control.Phase) {
+	r, phase := ctl.ReferenceAt(at)
+	switch phase {
+	case control.Waiting:
+		r = control.Reference{Stamp: at, Pose: knots[0].Pose}
+	case control.Finished:
+		r = control.Reference{Stamp: at, Pose: knots[len(knots)-1].Pose}
+	}
+	return r, phase
 }
 
 func readCSV(path string) []map[string]string {

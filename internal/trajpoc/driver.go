@@ -5,7 +5,10 @@ import (
 	"math"
 	"sync"
 
+	"github.com/Rione/ssl-RACOON-Pi3/internal/control"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/receive"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/supervisor"
 )
 
 // VisionSource は自機の最新の vision 姿勢と、その撮影時刻を返す。
@@ -45,7 +48,8 @@ type Sample struct {
 	Age                              float64
 	Capture                          localization.Stamp
 	Pose                             localization.Pose2
-	Ref                              RefSample // TV での参照
+	Ref                              control.Reference // TV (撮影時刻) での参照
+	Phase                            control.Phase
 	CmdWorld                         localization.Vec2
 	CmdOmega                         float64
 	CmdBody                          localization.Vec2
@@ -65,13 +69,17 @@ type Driver struct {
 	rel    []Knot
 	vision VisionSource
 	now    Clock
-	wheels WheelSource       // nil なら記録も検査もしない
-	imu    ImuSource         // nil なら記録しない
-	check  *wheelVisionCheck // 車輪と vision の食い違いの検査 (wheels があるとき)
+	wheels WheelSource                  // nil なら記録も検査もしない
+	imu    ImuSource                    // nil なら記録しない
+	check  *supervisor.WheelVisionCheck // 車輪と vision の食い違いの検査 (wheels があるとき)
 
 	state  State
 	reason string
-	ref    *Reference
+	ctl    *control.Controller // 本番と同じ追従器 (internal/control)
+	eval   *control.Controller // 指標を出すための参照 (先回しの速度を必ず持つ。指令には使わない)
+	path   []Knot              // 貼り付け後の点列 (輪郭誤差の評価に使う)
+	endT   float64             // 軌道の末尾の時刻 (軌道の先頭を 0 とした秒)
+	fence  supervisor.Fence
 	start  localization.Pose2
 	t0     localization.Stamp
 
@@ -88,9 +96,6 @@ func NewDriver(rel []Knot, cfg Config, vision VisionSource, now Clock) (*Driver,
 	if err := cfg.Validate(rel); err != nil {
 		return nil, err
 	}
-	if _, err := NewReference(rel, cfg.Interp); err != nil {
-		return nil, err
-	}
 	n := int(math.Ceil((MeasureBounds(rel).Duration+cfg.Settle+cfg.StartDelay+1)*125)) + 64
 	return &Driver{cfg: cfg, rel: append([]Knot(nil), rel...), vision: vision, now: now,
 		samples: make([]Sample, 0, n)}, nil
@@ -99,7 +104,7 @@ func NewDriver(rel []Knot, cfg Config, vision VisionSource, now Clock) (*Driver,
 // SetWheelSource は車輪の回転速度の読み出しを登録する。Arm の前に呼ぶ。
 // 記録するほか、車輪と vision の食い違いの検査 (consistency.go) に使う。
 func (d *Driver) SetWheelSource(w WheelSource) error {
-	c, err := newWheelVisionCheck(PoCGeometry())
+	c, err := supervisor.NewWheelVisionCheck(PoCGeometry())
 	if err != nil {
 		return err
 	}
@@ -132,12 +137,26 @@ func (d *Driver) Arm() error {
 		return fmt.Errorf("vision is stale (%.0f ms)", age*1000)
 	}
 	// 軌道の先頭の向きは相対 0。ロボットの今の向きを基準にする。
-	ref, err := NewReference(ToWorld(d.rel, pose), d.cfg.Interp)
+	world := ToWorld(d.rel, pose)
+	t0 := now + localization.Stamp(d.cfg.StartDelay*1e9)
+	nodes := ToNodes(world, t0, d.cfg.Method.FeedForward())
+	// 受信の入口と同じ検証を通す (本番では RAVEN から来た点列がここを通る)。
+	last := nodes[len(nodes)-1].Stamp
+	plan, err := receive.PreparePlan(1, last+localization.Stamp(d.cfg.Settle*1e9), nodes, d.cfg.ControlConfig())
 	if err != nil {
 		return err
 	}
-	d.ref, d.start = ref, pose
-	d.t0 = now + localization.Stamp(d.cfg.StartDelay*1e9)
+	d.ctl, d.path = plan.Controller(), world
+	// 指標は「本来の参照」と比べたいので、先回しを切った手法 (p) でも速度入りのノードで評価する。
+	d.eval = d.ctl
+	if !d.cfg.Method.FeedForward() {
+		if d.eval, err = control.New(ToNodes(world, t0, true), d.cfg.ControlConfig()); err != nil {
+			return err
+		}
+	}
+	d.endT = world[len(world)-1].T
+	d.start, d.t0 = pose, t0
+	d.fence = supervisor.Fence{Start: localization.Vec2{X: pose.X, Y: pose.Y}, Radius: d.cfg.Fence + d.cfg.FenceMargin}
 	d.prevTick = now
 	d.state = Running
 	return nil
@@ -172,11 +191,25 @@ func (d *Driver) Start() localization.Pose2 {
 	return d.start
 }
 
-// Reference は貼り付け後の参照 (Arm 前は nil)。
-func (d *Driver) Reference() *Reference {
+// Path は貼り付け後の点列 (Arm 前は nil)。指標の輪郭誤差に使う。
+func (d *Driver) Path() []Knot {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.ref
+	return append([]Knot(nil), d.path...)
+}
+
+// Duration は軌道の長さ [s] (軌道の先頭を 0 とした末尾の時刻)。
+func (d *Driver) Duration() float64 {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.endT
+}
+
+// Controller は走らせている追従器 (Arm 前は nil)。
+func (d *Driver) Controller() *control.Controller {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.ctl
 }
 
 // Samples は記録のコピーを返す。
@@ -210,11 +243,11 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 		d.abort(fmt.Sprintf("vision lost (%.0f ms)", age*1000))
 		return 0, 0, 0, true
 	}
-	if math.Hypot(pose.X-d.start.X, pose.Y-d.start.Y) > d.cfg.Fence+d.cfg.FenceMargin {
-		d.abort(fmt.Sprintf("left the fence (%.2f m from start)", math.Hypot(pose.X-d.start.X, pose.Y-d.start.Y)))
+	if dist, out := d.fence.Outside(localization.Vec2{X: pose.X, Y: pose.Y}); out {
+		d.abort(fmt.Sprintf("%s: %.2f m from start", supervisor.OutOfFence, dist))
 		return 0, 0, 0, true
 	}
-	if t > d.ref.End()+d.cfg.Settle {
+	if t > d.endT+d.cfg.Settle {
 		d.state, d.reason = Done, "trajectory finished"
 		return 0, 0, 0, true
 	}
@@ -226,12 +259,12 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	if d.wheels != nil {
 		s.Wheels = d.wheels()
 		// vision が古いときは下の「止まって待つ」に任せる (止まった vision と比べると必ず食い違う)
-		if reason, bad := d.check.step(t, dt, s.Wheels, pose, s.TV); bad && age <= d.cfg.VisionHoldAge {
+		if reason, bad := d.check.Step(t, dt, s.Wheels, pose, s.TV); bad && age <= d.cfg.VisionHoldAge {
 			d.abort(reason)
 			return 0, 0, 0, true
 		}
 	}
-	s.Ref = d.ref.At(s.TV)
+	s.Ref, s.Phase = d.refAt(capture)
 	if age > d.cfg.VisionHoldAge {
 		// 古い位置で閉ループを回すと振動する。止まって新しい vision を待つ。
 		s.Held = true
@@ -241,10 +274,27 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 		return 0, 0, 0, true
 	}
 
-	vel, omega, bodyTheta := command(d.cfg, d.ref, t, pose, age, d.prevVel, d.prevOmega)
-	if t > d.ref.End() {
+	// 走っている間は本番の追従器に任せる。姿勢は vision の生の値 (推定器はまだ通さない)。
+	//
+	// 時刻は「撮影時刻」ではなく「今」を渡す。control は estimate.Stamp で参照を引くので、
+	// 撮影時刻を渡すと vision の古さのぶんだけ参照まで古くなり、そのまま追従の遅れになる。
+	// 本番は推定器が今まで進めた姿勢を出すので、この差は無くなる。
+	est := localization.Estimate{Stamp: now, Pose: pose, Health: localization.HealthOK}
+	bodyTheta := pose.Theta
+	var vel localization.Vec2
+	var omega float64
+	if cmd, phase, err := d.ctl.Calculate(est); err != nil {
+		d.abort(fmt.Sprintf("%s: %v", supervisor.CalculationFailed, err))
+		return 0, 0, 0, true
+	} else if phase == control.Tracking {
+		vel = localization.Rotate(pose.Theta, cmd.VelBody)
+		omega = cmd.YawRate
+	} else {
+		// 終端の後 (本番はここで 0 指令)。PoC は到着の精度を測るため最後の点へ寄せ続ける。
+		goal := control.Reference{Stamp: capture, Pose: d.path[len(d.path)-1].Pose}
+		vel, omega = holdCommand(d.cfg, goal, pose)
 		pred := predict(pose, capture, now, d.cfg.NearGoal.Delay, d.hist)
-		if v, w, st, ok := nearGoal(d.cfg.NearGoal, d.ref.At(t), pred, d.ngStopped); ok {
+		if v, w, st, ok := nearGoal(d.cfg.NearGoal, goal, pred, d.ngStopped); ok {
 			vel, omega, d.ngStopped, bodyTheta = v, w, st, pred.Theta
 			s.NearGoal, s.Pred = true, pred
 		}
@@ -256,6 +306,19 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	s.CmdWorld, s.CmdOmega, s.CmdBody = vel, omega, body
 	d.samples = append(d.samples, s)
 	return toInt16(body.X * 1000), toInt16(body.Y * 1000), toInt16(omega * 1000), true
+}
+
+// refAt は指標に使う参照。軌道の前後では端の点で静止しているものとして扱う
+// (本番の control は範囲外でゼロの参照を返すが、それでは「参照との距離」を測れない)。
+func (d *Driver) refAt(at localization.Stamp) (control.Reference, control.Phase) {
+	r, phase := d.eval.ReferenceAt(at)
+	switch phase {
+	case control.Waiting:
+		r = control.Reference{Stamp: at, Pose: d.path[0].Pose}
+	case control.Finished:
+		r = control.Reference{Stamp: at, Pose: d.path[len(d.path)-1].Pose}
+	}
+	return r, phase
 }
 
 // remember は出した指令を覚え、スミス予測に要らなくなった古いものを捨てる

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
+	"github.com/Rione/ssl-RACOON-Pi3/internal/supervisor"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/trajpoc"
 )
 
@@ -72,11 +73,11 @@ func main() {
 		for _, p := range flag.Args() {
 			rows, err := readCSV(p)
 			check(err)
-			ss := make([]trajpoc.CheckSample, len(rows))
+			ss := make([]supervisor.CheckSample, len(rows))
 			for i, r := range rows {
-				ss[i] = trajpoc.CheckSample{T: r.t, TV: r.tv, Pose: r.pose, Wheels: r.wheels}
+				ss[i] = supervisor.CheckSample{T: r.t, TV: r.tv, Pose: r.pose, Wheels: r.wheels}
 			}
-			if t, reason, stop := trajpoc.ReplayWheelCheck(ss); stop {
+			if t, reason, stop := supervisor.ReplayWheelCheck(trajpoc.PoCGeometry(), ss); stop {
 				fmt.Printf("%s: STOP at t=%.2f s: %s\n", p, t, reason)
 			} else {
 				fmt.Printf("%s: ok (never stopped)\n", p)

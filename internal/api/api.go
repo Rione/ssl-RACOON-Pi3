@@ -19,8 +19,8 @@ import (
 )
 
 var (
-	pythonCmd   *exec.Cmd
-	robotID     uint32
+	pythonCmd *exec.Cmd
+	robotID   uint32
 )
 
 func Run(done <-chan struct{}, myID uint32) {
@@ -302,21 +302,21 @@ type statusWheelSpeedRaw struct {
 }
 
 type statusResponse struct {
-	RobotID                 uint32              `json:"robotId"`
-	ConnectionState         string              `json:"connectionState"`
-	IsNewRobot              bool                `json:"isNewRobot"`
-	Volt                    float32             `json:"VOLT"`
-	IsDetectPhotoSensor     bool                `json:"ISDETECTPHOTOSENSOR"`
-	IsDetectDribblerSensor  bool                `json:"ISDETECTDRIBBLERSENSOR"`
-	IsNewDribbler           bool                `json:"ISNEWDRIBBLER"`
-	CapPower                uint8               `json:"capPower"`
-	WheelSpeedMS            statusWheelSpeedMS  `json:"wheelSpeedMS"`
-	WheelSpeedRaw           statusWheelSpeedRaw `json:"wheelSpeedRaw"`
-	Ball                    statusBallResponse  `json:"ball"`
-	Thresholds              state.Adjustment    `json:"thresholds"`
-	Error                   bool                `json:"ERROR"`
-	ErrorCode               int                 `json:"ERRORCODE"`
-	ErrorMessage            string              `json:"ERRORMESSAGE"`
+	RobotID                uint32              `json:"robotId"`
+	ConnectionState        string              `json:"connectionState"`
+	IsNewRobot             bool                `json:"isNewRobot"`
+	Volt                   float32             `json:"VOLT"`
+	IsDetectPhotoSensor    bool                `json:"ISDETECTPHOTOSENSOR"`
+	IsDetectDribblerSensor bool                `json:"ISDETECTDRIBBLERSENSOR"`
+	IsNewDribbler          bool                `json:"ISNEWDRIBBLER"`
+	CapPower               uint8               `json:"capPower"`
+	WheelSpeedMS           statusWheelSpeedMS  `json:"wheelSpeedMS"`
+	WheelSpeedRaw          statusWheelSpeedRaw `json:"wheelSpeedRaw"`
+	Ball                   statusBallResponse  `json:"ball"`
+	Thresholds             state.Adjustment    `json:"thresholds"`
+	Error                  bool                `json:"ERROR"`
+	ErrorCode              int                 `json:"ERRORCODE"`
+	ErrorMessage           string              `json:"ERRORMESSAGE"`
 }
 
 func connectionStateName(s int) string {

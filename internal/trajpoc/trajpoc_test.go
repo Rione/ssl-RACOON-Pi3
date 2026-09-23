@@ -5,7 +5,9 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/Rione/ssl-RACOON-Pi3/internal/control"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
@@ -74,28 +76,35 @@ func TestGenerateShapesRoundTrip(t *testing.T) {
 	}
 }
 
-func TestReferenceInterpolation(t *testing.T) {
-	// 等速直線: どちらの補間でも位置も速度も厳密。
+func TestToNodesFillsVelocities(t *testing.T) {
+	// 等速直線 0.2 m/s。中心差分なので内側の点は厳密、端は片側差分。
 	var k []Knot
 	for i := 0; i <= 10; i++ {
 		k = append(k, Knot{T: float64(i) * 0.1, Pose: localization.Pose2{X: 0.2 * float64(i) * 0.1}})
 	}
-	for _, in := range []Interp{InterpLinear, InterpHermite} {
-		r, err := NewReference(k, in)
-		if err != nil {
-			t.Fatal(err)
-		}
-		s := r.At(0.537)
-		if math.Abs(s.Pos.X-0.1074) > 1e-9 || s.Phase != During {
-			t.Errorf("%s: pos %.6f", in, s.Pos.X)
-		}
-		// 端の点は片側差分なので、等速の内側で速度を確かめる。
-		if s.Vel.X < 0.199 || s.Vel.X > 0.201 {
-			t.Errorf("%s: vel %.6f", in, s.Vel.X)
-		}
-		if b, a := r.At(-1), r.At(5); b.Phase != Before || a.Phase != After || a.Pos.X != 0.2 || a.Vel.X != 0 {
-			t.Errorf("%s: out-of-range samples must hold the end points at rest", in)
-		}
+	nodes := ToNodes(k, localization.Stamp(time.Second), true)
+	if len(nodes) != len(k) {
+		t.Fatalf("got %d nodes, want %d", len(nodes), len(k))
+	}
+	if math.Abs(nodes[5].VelBody.X-0.2) > 1e-9 || math.Abs(nodes[5].VelBody.Y) > 1e-9 {
+		t.Errorf("node velocity %+v, want (0.2, 0)", nodes[5].VelBody)
+	}
+	if nodes[0].Stamp != localization.Stamp(time.Second) {
+		t.Errorf("first node stamp %v, want t0", nodes[0].Stamp)
+	}
+	// 先回し無し (p) では速度を 0 にする
+	zero := ToNodes(k, 0, false)
+	if zero[5].VelBody != (localization.Vec2{}) || zero[5].YawRate != 0 {
+		t.Errorf("without feed-forward the node velocity must be zero, got %+v", zero[5])
+	}
+	// control の参照は、その速度をそのまま返す
+	c, err := control.New(nodes, DefaultConfig().ControlConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, phase := c.ReferenceAt(localization.Stamp(1.537 * float64(time.Second)))
+	if phase != control.Tracking || math.Abs(ref.Pose.X-0.1074) > 1e-9 || math.Abs(ref.VelWorld.X-0.2) > 1e-9 {
+		t.Errorf("reference %+v phase %v", ref, phase)
 	}
 }
 
@@ -235,30 +244,26 @@ func TestDriverClosedLoopComparesMethods(t *testing.T) {
 		t.Fatal(err)
 	}
 	results := map[Method]Metrics{}
-	for _, m := range []Method{MethodP, MethodFFP, MethodFFPLead} {
-		for _, in := range []Interp{InterpLinear, InterpHermite} {
-			cfg := DefaultConfig()
-			cfg.Method, cfg.Interp = m, in
-			r := newSim(localization.Pose2{X: 1.0, Y: -0.5, Theta: 0.7})
-			d, err := NewDriver(rel, cfg, r.vision, r.clock)
-			if err != nil {
-				t.Fatal(err)
-			}
-			run(t, r, d, 60)
-			st, reason := d.Status()
-			if st != Done {
-				t.Fatalf("%s/%s ended in %s: %s", m, in, st, reason)
-			}
-			if vx, vy, w, _ := d.OverrideVelocity(); vx != 0 || vy != 0 || w != 0 {
-				t.Fatal("after the end the driver must keep sending zero")
-			}
-			met := ComputeMetrics(d.Samples(), d.Reference().Knots())
-			t.Logf("%-8s %-7s pos RMS %5.1f mm  contour RMS %5.1f  lag %4.0f ms  final %4.1f mm  cmd accel %4.2f",
-				m, in, met.PosRMS, met.ContourRMS, met.LagMs, met.FinalPos, met.CmdAccelRMS)
-			if in == InterpHermite {
-				results[m] = met
-			}
+	for _, m := range []Method{MethodP, MethodFFP, MethodFFPVelLead} {
+		cfg := DefaultConfig()
+		cfg.Method = m
+		r := newSim(localization.Pose2{X: 1.0, Y: -0.5, Theta: 0.7})
+		d, err := NewDriver(rel, cfg, r.vision, r.clock)
+		if err != nil {
+			t.Fatal(err)
 		}
+		run(t, r, d, 60)
+		st, reason := d.Status()
+		if st != Done {
+			t.Fatalf("%s ended in %s: %s", m, st, reason)
+		}
+		if vx, vy, w, _ := d.OverrideVelocity(); vx != 0 || vy != 0 || w != 0 {
+			t.Fatal("after the end the driver must keep sending zero")
+		}
+		met := ComputeMetrics(d.Samples(), d.Path())
+		t.Logf("%-10s pos RMS %5.1f mm  contour RMS %5.1f  lag %4.0f ms  final %4.1f mm  cmd accel %4.2f",
+			m, met.PosRMS, met.ContourRMS, met.LagMs, met.FinalPos, met.CmdAccelRMS)
+		results[m] = met
 	}
 	// 参照速度を先回しすれば、P だけより遅れが明確に小さい。
 	if results[MethodFFP].LagMs >= results[MethodP].LagMs*0.5 {
@@ -266,14 +271,14 @@ func TestDriverClosedLoopComparesMethods(t *testing.T) {
 	}
 	// 遅れ補償の先読み時間は機体の遅れ次第で、大きすぎると先走る。ここでは合否にせず、
 	// 感度だけを出す (値は仮の機体モデルのものなので、実機で振って決める)。
-	for _, lead := range []float64{0, 0.02, 0.04, 0.06, 0.08} {
+	for _, lead := range []float64{0, 0.04, 0.08, 0.12} {
 		cfg := DefaultConfig()
-		cfg.Method, cfg.Lead = MethodFFPLead, lead
+		cfg.Method, cfg.Lead = MethodFFPVelLead, lead
 		r := newSim(localization.Pose2{X: 1.0, Y: -0.5, Theta: 0.7})
 		d, _ := NewDriver(rel, cfg, r.vision, r.clock)
 		run(t, r, d, 60)
-		met := ComputeMetrics(d.Samples(), d.Reference().Knots())
-		t.Logf("ffp_lead lead=%3.0fms  pos RMS %5.1f mm  contour RMS %5.1f  lag %4.0f ms",
+		met := ComputeMetrics(d.Samples(), d.Path())
+		t.Logf("ffp_vlead lead=%3.0fms  pos RMS %5.1f mm  contour RMS %5.1f  lag %4.0f ms",
 			lead*1000, met.PosRMS, met.ContourRMS, met.LagMs)
 	}
 }
@@ -300,7 +305,7 @@ func TestVelocityLeadRemovesOutwardDrift(t *testing.T) {
 		var sum float64
 		var n int
 		for _, s := range d.Samples() {
-			if s.TV > 1.0 && s.TV < d.Reference().End()-1.0 {
+			if s.TV > 1.0 && s.TV < d.Duration()-1.0 {
 				sum += math.Hypot(s.Pose.X, s.Pose.Y-0.3) - 0.3
 				n++
 			}
@@ -353,7 +358,7 @@ func TestNearGoalSettlesAndStops(t *testing.T) {
 			if st, reason := d.Status(); st != Done {
 				t.Fatalf("ended in %s: %s", st, reason)
 			}
-			met := ComputeMetrics(d.Samples(), d.Reference().Knots())
+			met := ComputeMetrics(d.Samples(), d.Path())
 			smp := d.Samples()
 			t.Logf("final %.1f mm %.2f deg, settle swing ±%.2f deg, settle cmd max %.0f mm/s",
 				met.FinalPos, met.FinalHead, met.SettleHeadSwing, met.SettleCmdMax)

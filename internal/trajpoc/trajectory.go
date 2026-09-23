@@ -14,6 +14,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/Rione/ssl-RACOON-Pi3/internal/control"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
@@ -148,4 +149,39 @@ func finite(values ...float64) bool {
 		}
 	}
 	return true
+}
+
+// ToNodes はワールド座標の点列を control のノード列にする。
+//
+// TimedPoint は位置と時刻しか持たないので、速度は受け手が作る。ここでは前後の点の中心差分
+// (端は片側差分) をそのノードの姿勢を基準とした機体座標へ直して入れる。
+// feedForward が false なら速度を 0 にする (先回しを使わない手法との比較用)。
+// t0 は軌道の先頭に対応する絶対時刻。
+func ToNodes(world []Knot, t0 localization.Stamp, feedForward bool) []control.Node {
+	out := make([]control.Node, len(world))
+	for i, k := range world {
+		n := control.Node{
+			Stamp: t0 + localization.Stamp(k.T*1e9),
+			Pose:  k.Pose,
+		}
+		if feedForward {
+			a, b := i, i
+			if i > 0 {
+				a = i - 1
+			}
+			if i < len(world)-1 {
+				b = i + 1
+			}
+			if dt := world[b].T - world[a].T; dt > 0 {
+				vw := localization.Vec2{
+					X: (world[b].Pose.X - world[a].Pose.X) / dt,
+					Y: (world[b].Pose.Y - world[a].Pose.Y) / dt,
+				}
+				n.VelBody = localization.RotateInv(k.Pose.Theta, vw)
+				n.YawRate = localization.AngleDiff(world[b].Pose.Theta, world[a].Pose.Theta) / dt
+			}
+		}
+		out[i] = n
+	}
+	return out
 }

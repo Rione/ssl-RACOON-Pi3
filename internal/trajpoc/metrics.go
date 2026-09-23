@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Rione/ssl-RACOON-Pi3/internal/control"
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
@@ -42,12 +43,12 @@ func ComputeMetrics(samples []Sample, path []Knot) Metrics {
 	seen := map[localization.Stamp]bool{}
 	settleMin, settleMax := math.Inf(1), math.Inf(-1)
 	for _, s := range samples {
-		if s.Held || s.T <= 0 || s.Ref.Phase != After {
+		if s.Held || s.T <= 0 || s.Phase != control.Finished {
 			continue
 		}
 		m.SettleCmdMax = math.Max(m.SettleCmdMax, math.Hypot(s.CmdWorld.X, s.CmdWorld.Y)*1000)
-		if s.TV > 0 && s.Ref.Phase == After {
-			h := localization.AngleDiff(s.Pose.Theta, s.Ref.Theta) * 180 / math.Pi
+		if s.TV > 0 && s.Phase == control.Finished {
+			h := localization.AngleDiff(s.Pose.Theta, s.Ref.Pose.Theta) * 180 / math.Pi
 			settleMin, settleMax = math.Min(settleMin, h), math.Max(settleMax, h)
 		}
 	}
@@ -73,18 +74,18 @@ func ComputeMetrics(samples []Sample, path []Knot) Metrics {
 		seen[s.Capture] = true
 		m.Frames++
 		ages = append(ages, s.Age*1000)
-		ex, ey := s.Pose.X-s.Ref.Pos.X, s.Pose.Y-s.Ref.Pos.Y
+		ex, ey := s.Pose.X-s.Ref.Pose.X, s.Pose.Y-s.Ref.Pose.Y
 		e := math.Hypot(ex, ey) * 1000
 		pos2 += e * e
 		m.PosMax = math.Max(m.PosMax, e)
 		c := DistanceToPath(path, localization.Vec2{X: s.Pose.X, Y: s.Pose.Y}) * 1000
 		cont2 += c * c
 		m.ContourMax = math.Max(m.ContourMax, c)
-		h := math.Abs(localization.AngleDiff(s.Pose.Theta, s.Ref.Theta)) * 180 / math.Pi
+		h := math.Abs(localization.AngleDiff(s.Pose.Theta, s.Ref.Pose.Theta)) * 180 / math.Pi
 		head2 += h * h
 		m.HeadMax = math.Max(m.HeadMax, h)
-		if v := math.Hypot(s.Ref.Vel.X, s.Ref.Vel.Y); s.Ref.Phase == During && v > minMovingSpeed {
-			ux, uy := s.Ref.Vel.X/v, s.Ref.Vel.Y/v
+		if v := math.Hypot(s.Ref.VelWorld.X, s.Ref.VelWorld.Y); s.Phase == control.Tracking && v > minMovingSpeed {
+			ux, uy := s.Ref.VelWorld.X/v, s.Ref.VelWorld.Y/v
 			along := (ex*ux + ey*uy) * 1000
 			cross := (-ex*uy + ey*ux) * 1000
 			alongSum += along
@@ -122,8 +123,8 @@ func median(v []float64) float64 {
 // Format は人が読む要約を返す。
 func (m Metrics) Format(cfg Config, state State, reason string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "=== trajpoc result: method=%s interp=%s Kp=%.2f Kth=%.2f lead=%.0fms ===\n",
-		cfg.Method, cfg.Interp, cfg.Kp, cfg.Kth, cfg.Lead*1000)
+	fmt.Fprintf(&b, "=== trajpoc result: method=%s Kp=%.2f Kth=%.2f lead=%.0fms ===\n",
+		cfg.Method, cfg.Kp, cfg.Kth, cfg.Lead*1000)
 	fmt.Fprintf(&b, "end: %s (%s)\n", state, reason)
 	fmt.Fprintf(&b, "vision frames %d, held cycles %d, vision age median %.0f ms\n", m.Frames, m.Held, m.AgeMedianMs)
 	fmt.Fprintf(&b, "position error     RMS %6.1f mm   max %6.1f mm\n", m.PosRMS, m.PosMax)
@@ -160,7 +161,7 @@ func WriteCSV(w io.Writer, samples []Sample) error {
 		}
 		if _, err := fmt.Fprintf(w, "%.4f,%.4f,%.1f,%d,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%d,%.1f,%.1f,%.4f,%.2f,%.2f,%.2f,%.2f,%d,%.4f,%.3f,%.3f\n",
 			s.T, s.TV, s.Age*1000, held, s.Pose.X*1000, s.Pose.Y*1000, s.Pose.Theta,
-			s.Ref.Pos.X*1000, s.Ref.Pos.Y*1000, s.Ref.Theta, s.Ref.Vel.X*1000, s.Ref.Vel.Y*1000, s.Ref.YawRate,
+			s.Ref.Pose.X*1000, s.Ref.Pose.Y*1000, s.Ref.Pose.Theta, s.Ref.VelWorld.X*1000, s.Ref.VelWorld.Y*1000, s.Ref.YawRate,
 			s.CmdWorld.X*1000, s.CmdWorld.Y*1000, s.CmdOmega, s.CmdBody.X*1000, s.CmdBody.Y*1000,
 			ng, s.Pred.X*1000, s.Pred.Y*1000, s.Pred.Theta,
 			s.Wheels[0], s.Wheels[1], s.Wheels[2], s.Wheels[3],
@@ -169,4 +170,30 @@ func WriteCSV(w io.Writer, samples []Sample) error {
 		}
 	}
 	return nil
+}
+
+// DistanceToPath は点 p から、点列を結んだ折れ線までの最短距離 [m]。
+// 輪郭誤差 (時刻を無視して、経路からどれだけ外れたか) に使う。
+func DistanceToPath(knots []Knot, p localization.Vec2) float64 {
+	best := math.Inf(1)
+	for i := 1; i < len(knots); i++ {
+		a := localization.Vec2{X: knots[i-1].Pose.X, Y: knots[i-1].Pose.Y}
+		b := localization.Vec2{X: knots[i].Pose.X, Y: knots[i].Pose.Y}
+		best = math.Min(best, pointSegment(p, a, b))
+	}
+	if len(knots) == 1 {
+		best = math.Hypot(p.X-knots[0].Pose.X, p.Y-knots[0].Pose.Y)
+	}
+	return best
+}
+
+func pointSegment(p, a, b localization.Vec2) float64 {
+	dx, dy := b.X-a.X, b.Y-a.Y
+	l2 := dx*dx + dy*dy
+	if l2 < 1e-18 {
+		return math.Hypot(p.X-a.X, p.Y-a.Y)
+	}
+	u := ((p.X-a.X)*dx + (p.Y-a.Y)*dy) / l2
+	u = math.Max(0, math.Min(1, u))
+	return math.Hypot(p.X-(a.X+u*dx), p.Y-(a.Y+u*dy))
 }

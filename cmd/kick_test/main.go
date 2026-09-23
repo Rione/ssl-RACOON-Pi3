@@ -45,9 +45,9 @@ const (
 	infoDirectKick     = 0b00000010
 	infoDirectChip     = 0b00000100
 
-	defaultSPIPeriod        = 8 * time.Millisecond
-	defaultKickHold         = 32 * time.Millisecond
-	defaultKickCooldown     = 2 * time.Second
+	defaultSPIPeriod         = 8 * time.Millisecond
+	defaultKickHold          = 32 * time.Millisecond
+	defaultKickCooldown      = 2 * time.Second
 	defaultDischargeDuration = 3 * time.Second
 )
 
@@ -88,9 +88,9 @@ type txSettings struct {
 
 	dribble uint8
 
-	kickHold    time.Duration
+	kickHold     time.Duration
 	kickCooldown time.Duration
-	lastKickAt  time.Time
+	lastKickAt   time.Time
 }
 
 type pulseKind int
@@ -113,13 +113,13 @@ type spiRunner struct {
 
 	mu sync.Mutex
 
-	running     bool
+	running      bool
 	shutdownOnce sync.Once
-	txCount     int
-	lastTX      []byte
-	lastRX      []byte
-	lastErr     error
-	pulse       *activePulse
+	txCount      int
+	lastTX       []byte
+	lastRX       []byte
+	lastErr      error
+	pulse        *activePulse
 }
 
 func main() {

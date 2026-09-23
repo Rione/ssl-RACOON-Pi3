@@ -51,11 +51,10 @@ const (
 func registerTrajPocFlags() {
 	d := trajpoc.DefaultConfig()
 	flag.BoolVar(&trajPoc.enabled, "trajpoc", false, "標準入力の時刻つき軌道を追従する PoC を実行する。ロボットが自走するので注意")
-	flag.StringVar(&trajPoc.method, "trajmethod", string(d.Method), "追従の手法 (p | ffp | ffp_lead | ffp_vlead)")
-	flag.StringVar(&trajPoc.interp, "trajinterp", string(d.Interp), "点の間の補間 (linear | hermite)")
+	flag.StringVar(&trajPoc.method, "trajmethod", string(d.Method), "追従の手法 (p | ffp | ffp_vlead)")
 	flag.Float64Var(&trajPoc.kp, "trajkp", d.Kp, "位置の P ゲイン [1/s]")
 	flag.Float64Var(&trajPoc.kth, "trajkth", d.Kth, "向きの P ゲイン [1/s]")
-	flag.Float64Var(&trajPoc.leadMs, "trajlead", d.Lead*1000, "ffp_lead / ffp_vlead で先を狙う時間 [ms]")
+	flag.Float64Var(&trajPoc.leadMs, "trajlead", d.Lead*1000, "ffp_vlead で先回しの速度を取る時間 [ms]")
 	flag.Float64Var(&trajPoc.maxSpeed, "trajmaxspeed", d.MaxSpeed, "並進速度の上限 [m/s]")
 	flag.Float64Var(&trajPoc.fence, "trajfence", d.Fence, "軌道が収まるべき開始位置からの半径 [m]")
 	flag.IntVar(&trajPoc.visionID, "trajvisionid", -1, "SSL-Vision 上の自機 ID (カバーの模様)。-1 なら DIP スイッチの ID")
@@ -67,9 +66,6 @@ func trajPocConfig() (trajpoc.Config, error) {
 	cfg := trajpoc.DefaultConfig()
 	var err error
 	if cfg.Method, err = trajpoc.ParseMethod(trajPoc.method); err != nil {
-		return cfg, err
-	}
-	if cfg.Interp, err = trajpoc.ParseInterp(trajPoc.interp); err != nil {
 		return cfg, err
 	}
 	if trajPoc.maxSpeed > trajPocSpeedCeiling || trajPoc.fence > trajPocFenceCeiling {
@@ -190,8 +186,8 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 		finishTrajPoC(driver, cfg, 1)
 	}
 	s := driver.Start()
-	log.Printf("[TRAJ] *** RUNNING: method=%s interp=%s from (%.0f, %.0f) mm, %.1f deg. Ctrl+C to stop ***",
-		cfg.Method, cfg.Interp, s.X*1000, s.Y*1000, s.Theta*180/3.14159265)
+	log.Printf("[TRAJ] *** RUNNING: method=%s from (%.0f, %.0f) mm, %.1f deg. Ctrl+C to stop ***",
+		cfg.Method, s.X*1000, s.Y*1000, s.Theta*180/3.14159265)
 
 	// SSH が切れると標準入力が EOF になる。それを止める合図にする。
 	stdinClosed := make(chan struct{})
@@ -224,7 +220,7 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 			lastPrint = time.Now()
 			if smp := driver.Samples(); len(smp) > 0 {
 				l := smp[len(smp)-1]
-				dx, dy := (l.Pose.X-l.Ref.Pos.X)*1000, (l.Pose.Y-l.Ref.Pos.Y)*1000
+				dx, dy := (l.Pose.X-l.Ref.Pose.X)*1000, (l.Pose.Y-l.Ref.Pose.Y)*1000
 				log.Printf("[TRAJ] t=%5.2fs err=(%+5.0f,%+5.0f) mm cmd=(%+5.0f,%+5.0f) mm/s age=%3.0f ms",
 					l.T, dx, dy, l.CmdWorld.X*1000, l.CmdWorld.Y*1000, l.Age*1000)
 			}
@@ -253,23 +249,23 @@ func finishTrajPoC(driver *trajpoc.Driver, cfg trajpoc.Config, code int) {
 	if driver != nil {
 		st, reason := driver.Status()
 		samples := driver.Samples()
-		if ref := driver.Reference(); ref != nil {
-			m := trajpoc.ComputeMetrics(samples, ref.Knots())
+		if path := driver.Path(); len(path) > 0 {
+			m := trajpoc.ComputeMetrics(samples, path)
 			fmt.Print(m.Format(cfg, st, reason))
 		} else {
 			fmt.Printf("=== trajpoc: did not start (%s: %s) ===\n", st, reason)
 		}
 		if trajPoc.csvDir != "" && len(samples) > 0 {
-			path := filepath.Join(trajPoc.csvDir, fmt.Sprintf("trajpoc-%s-%s-%s.csv",
-				time.Now().Format("20060102-150405"), cfg.Method, cfg.Interp))
-			if f, err := os.Create(path); err != nil {
+			out := filepath.Join(trajPoc.csvDir, fmt.Sprintf("trajpoc-%s-%s.csv",
+				time.Now().Format("20060102-150405"), cfg.Method))
+			if f, err := os.Create(out); err != nil {
 				log.Printf("[TRAJ] csv: %v", err)
 			} else {
 				if err := trajpoc.WriteCSV(f, samples); err != nil {
 					log.Printf("[TRAJ] csv: %v", err)
 				}
 				f.Close()
-				fmt.Printf("csv: %s\n", path)
+				fmt.Printf("csv: %s\n", out)
 			}
 		}
 	}

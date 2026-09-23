@@ -19,7 +19,7 @@ const (
 var (
 	iocMu    sync.Mutex
 	iocFd    int = -1
-	iocCache = make(map[uint32][]byte)
+	iocCache     = make(map[uint32][]byte)
 )
 
 func readIOCReg(bank, port int) (uint32, error) {

@@ -1,4 +1,4 @@
-package trajpoc
+package supervisor
 
 import (
 	"fmt"
@@ -7,24 +7,12 @@ import (
 	"github.com/Rione/ssl-RACOON-Pi3/internal/localization"
 )
 
-// PoCGeometry はテスト機 (racoon-56011) の機体パラメータ。config/geometry-racoon-56011.json と同じ値
-// (traj-poc-log §5-20: 4 輪とも符号 -1、取付角・半径は vision の速度を基準にした同定、腕の長さは
-// vision を抜いたリプレイで向きのずれが最小になる値)。
-func PoCGeometry() localization.GeometryConfig {
-	g := localization.DefaultGeometry()
-	g.WheelAnglesDeg = [localization.NumWheels]float64{55.4, 136.1, -136.3, -57.4}
-	g.WheelRadiusM = [localization.NumWheels]float64{0.02933, 0.02803, 0.02818, 0.02805}
-	g.MomentArmM = 0.074
-	g.WheelSigns = [localization.NumWheels]float64{-1, -1, -1, -1}
-	return g
-}
-
-// 車輪と vision の食い違いの検査 (traj-poc-log §5-18)。
+// 車輪と vision の食い違いの検査 (docs/traj-poc-log.md §5-18)。
 //
 // vision の位置は枠の判定にも使うので、vision が別の物 (止まっている他のロボットの模様など) を
-// 見ていると、ロボットは見張られないまま走る。実際に 4 本それで走った。
+// 見ていると、ロボットは見張られないまま走る。実機で実際に 4 本それで走った。
 // そこで「車輪は動いたと言っているのに、vision がその向きにほとんど動いていない」が
-// Window 続いたら打ち切る。寸法が未確定なので、倍率が多少違っても誤って止めない緩い判定にしてある。
+// 続いたら止める。寸法が未確定なので、倍率が多少違っても誤って止めない緩い判定にしてある。
 const (
 	checkWindow   = 0.5  // 見比べる区間 [s]
 	checkMinTrans = 0.08 // 車輪がこれ以上動いたときだけ判定 [m]
@@ -44,7 +32,8 @@ type visionEntry struct {
 	pose localization.Pose2 // Theta は巻き戻さない累積
 }
 
-type wheelVisionCheck struct {
+// WheelVisionCheck は車輪と vision の動きを見比べる。1 台につき 1 つ、制御の goroutine から使う。
+type WheelVisionCheck struct {
 	kin    *localization.Kinematics
 	wheels []wheelEntry
 	vision []visionEntry
@@ -56,16 +45,17 @@ type wheelVisionCheck struct {
 	since  float64 // 食い違いが続いている時間 [s]
 }
 
-func newWheelVisionCheck(g localization.GeometryConfig) (*wheelVisionCheck, error) {
+// NewWheelVisionCheck は機体の車輪の寸法を渡して検査を作る。
+func NewWheelVisionCheck(g localization.GeometryConfig) (*WheelVisionCheck, error) {
 	k, err := localization.NewKinematics(g)
 	if err != nil {
 		return nil, err
 	}
-	return &wheelVisionCheck{kin: k}, nil
+	return &WheelVisionCheck{kin: k}, nil
 }
 
 // wheelAt は時刻 t の車輪の累積 (直前の記録)。
-func (c *wheelVisionCheck) wheelAt(t float64) wheelEntry {
+func (c *WheelVisionCheck) wheelAt(t float64) wheelEntry {
 	e := c.wheels[0]
 	for _, w := range c.wheels {
 		if w.t > t {
@@ -76,10 +66,10 @@ func (c *wheelVisionCheck) wheelAt(t float64) wheelEntry {
 	return e
 }
 
-// step は 1 周期ぶん進め、食い違っていれば理由を返す。wheels は SPI の並び [rad/s]。
+// Step は 1 周期ぶん進め、食い違っていれば理由を返す。wheels は SPI の並び [rad/s]。
 // vision は撮影時刻 tv の姿勢。車輪も同じ撮影時刻どうしで比べる (vision は遅れて届くので、
 // 今の車輪と比べると折り返しなどで食い違って見える)。
-func (c *wheelVisionCheck) step(t, dt float64, wheels [4]float64, vision localization.Pose2, tv float64) (string, bool) {
+func (c *WheelVisionCheck) Step(t, dt float64, wheels [4]float64, vision localization.Pose2, tv float64) (string, bool) {
 	vx, vy, w := c.kin.BodyFromWheel(c.kin.SlotsToLogical(wheels))
 	v := localization.Rotate(vision.Theta, localization.Vec2{X: vx, Y: vy})
 	c.cur.t = t
@@ -141,8 +131,8 @@ type CheckSample struct {
 }
 
 // ReplayWheelCheck は記録に検査を流し、最初に止めた時刻と理由を返す (止めなければ ok=false)。
-func ReplayWheelCheck(samples []CheckSample) (t float64, reason string, ok bool) {
-	c, err := newWheelVisionCheck(PoCGeometry())
+func ReplayWheelCheck(g localization.GeometryConfig, samples []CheckSample) (t float64, reason string, ok bool) {
+	c, err := NewWheelVisionCheck(g)
 	if err != nil {
 		return 0, err.Error(), true
 	}
@@ -151,7 +141,7 @@ func ReplayWheelCheck(samples []CheckSample) (t float64, reason string, ok bool)
 		if i > 0 {
 			dt = math.Min(s.T-samples[i-1].T, 0.05)
 		}
-		if r, bad := c.step(s.T, dt, s.Wheels, s.Pose, s.TV); bad {
+		if r, bad := c.Step(s.T, dt, s.Wheels, s.Pose, s.TV); bad {
 			return s.T, r, true
 		}
 	}
