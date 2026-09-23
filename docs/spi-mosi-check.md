@@ -131,6 +131,75 @@ MOSI は無実なので、`Robot_RockFindFrame` から先を見る。
 
 ---
 
+## 手順 6: ゲートから先を見る (2026-09-23 時点でここが残っている)
+
+下りが届いていることは確認できた。次は **`status = 0x20` を送っても車輪が回らない**理由。
+
+Rock5A 側でこれを流す (速度 0 なので**車輪は回らない**。ゲートの確認だけ)。
+
+```
+systemctl stop ssl-racoon.service
+/root/trajpoc/drive_test -vel 0 -sec 120
+```
+
+送られる status は `0x20` = `emergency_stop:0` / `is_signal_received:1`。
+ログに `status:0x20` と出るはず。そのうえで見てほしいのは次の 3 つ。
+
+### (1) ゲートを通っているか
+
+`src/mode/main_mode.c` の分岐に入っているか。LED2 (PB5) が点いていれば
+`is_signal_received` は立っている。
+
+```c
+if (!r->info.status.emergency_stop && r->info.status.is_signal_received) {
+```
+
+### (2) `Robot_SendOmniDrive` まで届いているか
+
+`src/unit/omni_drive.c` の `OmniDrive_SetVel` の末尾に一時的に入れる。
+
+```c
+{
+  static uint32_t dbg_n = 0;
+  if ((dbg_n++ % 200) == 0) {
+    printf("[DRV] in: %d %d %d -> m: %d %d %d %d\n",
+           vel_x, vel_y, vel_angle, m[0], m[1], m[2], m[3]);
+  }
+}
+```
+
+- **何も出ない** → ゲートで止まっている。(1) を見る
+- **出るが `m` が全部 0** → 逆運動学か `MAF_Update` の側
+- **`m` に値が入っている** → MainBoard は仕事をしている。原因はドライバ側 → (3)
+
+### (3) モータードライバ側
+
+`OmniDrive_Send` が 4 本の UART すべてに出ているか。
+車輪の実速度は上りに乗ってきている (= ドライバからの戻りは生きている) ので、
+**戻りは来るのに指令が効いていない**状態。
+
+ドライバが止める条件:
+
+| 条件 | 表示 |
+|---|---|
+| 指令が 0.5 秒途切れた | LED1 |
+| 60 °C 超え | LED3 |
+| 電源が 15〜30 V の外 | LED3 |
+| ゲートドライバ未準備 | LED2 |
+
+### おまけ: 電池電圧の ADC が不安定
+
+上りの電圧が **生値 4 と 250 を行き来**している (実測は 24 V)。
+`Robot_UpdateSensor` の `adc_val[0] * ADC2VOLT + BATTERY_VOLTAGE_OFFSET` が
+安定していない。`HAL_ADC_Start_DMA` が止まっていないか確認してほしい。
+走行の可否には直接効かないはずだが、Rock5A 側は電池残量の判断に使っている。
+
+また、生値 250 が 25 V に相当することから、**このビルドの倍率は ×10 (0.1 V/LSB) に
+戻っている**ように見える。以前 ×5 (0.2 V/LSB) に直してもらった変更が、
+デバッグ用ビルドで巻き戻っていないか確認してほしい。
+
+---
+
 ## 補足: こちらで既に潰してあること
 
 - **本番サービスとの奪い合い** — `ssl-racoon.service` が 6 GHz Wi-Fi 復帰後に
