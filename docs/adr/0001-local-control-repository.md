@@ -93,45 +93,85 @@ IMU が読まれていなかったこと、ジャイロが向きの誤差を 10�
 
 実機は UDP から `Snapshot` を作り、リプレイはファイルから作る。呼び手が違うだけになる。
 
-### 3. パッケージの構成
+### 3. 言語は C++
+
+**移植対象 19,500 行の著者を数えた結果で決めた。**
+
+| 対象 | 主な著者 | 行数 |
+|---|---|---|
+| `localization` (ESKF) | yuito393439 | 6,362 |
+| `locsim` | yuito393439 | 3,107 |
+| `locadapter` | yuito393439 | 2,228 |
+| `cmd/loc_replay` | yuito393439 | 1,530 |
+| `loclog` | yuito393439 | 1,448 |
+| `control` | kent186 | 787 |
+| `supervisor` | trowde | 179 |
+
+**この repo を引き継ぐ 2 人 (trowde / yuito393439) はどちらも C++ の背景で、Go を保守する人がいない。**
+再利用の価値は「保守できる」を前提に乗っているので、前提が無ければ価値も無い。
+会場で壊れたときに自分の制御コードが読めないのは、競技用のソフトとしては通らない。
+
+技術的にも、**構成の変化が C++ に有利に働いた。**
+
+- **Wing に渡した部分こそ Go が効いていた場所だった。** SPI・GPIO・RAVEN との UDP・自己更新は
+  Go の標準ライブラリとクロスコンパイルが強い領域。**残るのは密行列演算と UDP 1 本**で、C++ の本拠地。
+- **Eigen は実質的な改善。** いまの ESKF は行列演算を手書きしている。Eigen なら式に近い形で書け、
+  固定サイズ行列はスタックに載るので**アロケーションの規律を別途設けなくてよい。**
+- **別プロセス + Wing のウォッチドッグが、C++ の最大のリスク (落ちる) を吸収する。**
+  この境界だからこそ C++ が選べる。
+
+検討した他の言語:
+
+| 言語 | 判断 |
+|---|---|
+| **Go** | 再利用できるが**保守できる人がいない**。Wing と同じ言語という利点はあるが覆らない |
+| **Java** | SPI と GPIO が無くなったので「不可能」から「可能」に変わった。だが **B5 で自動復帰を選んだことと噛み合わない** — JVM は起動 + JIT のウォームアップに数秒かかり、落ちて上がり直した直後に本来の速度で回らない。GC も ZGC で追い込めるが守る事項が増える |
+| **Rust** | 紙の上では最良 (GC 無し・メモリ安全・nalgebra・静的 1 本)。だが**誰も知らず、学生チームに 3 つ目の言語を持ち込む代償が何年も続く** |
+| C / Zig / Python | 低水準すぎ / 若すぎ / 遅すぎ |
+
+### 4. ディレクトリの構成
+
+境界は言語に依存しない。上の「値 → 値」の構造をそのまま C++ に写す。
 
 ```
-cmd/
-  raven-local/     本体 (winglink → loop → winglink を配線するだけ)
-  loc_replay/      リプレイ。実機と同じ loop.Step を呼ぶ
+apps/
+  raven-alula/     本体 (winglink → loop → winglink を配線するだけ)
+  loc_replay/      リプレイ。実機と同じ loop::Step を呼ぶ
   loc_ident/       機体パラメータの同定
-  traj_gen/        軌道の生成 (試験用)
 
-internal/
-  localization/    ESKF と観測・推定の値の型      [移す・葉]
-  cycle/           1 周期の入出力 (Snapshot / Output)  [新規・葉]
-  control/         追従                           [移す]
-  supervisor/      安全検査 (枠・車輪 vs vision)   [移す]
-  loop/            250 Hz の権限。Step(Snapshot) -> Output  [新規]
-  winglink/        UDP と proto ↔ cycle の変換     [新規]
-  geometry/        機体諸元の読み込み              [新規]
-  loclog/          MCAP 記録                      [移す]
-  locsim/          真値つき合成データ              [移す]
+src/
+  localization/    ESKF (Eigen)。観測・推定の値の型       [書き直し・葉]
+  cycle/           1 周期の入出力 (Snapshot / Output)     [新規・葉]
+  control/         追従                                   [書き直し]
+  supervisor/      安全検査 (枠・車輪 vs vision)           [書き直し]
+  loop/            250 Hz の権限。Step(Snapshot) -> Output [新規]
+  winglink/        UDP と protobuf ↔ cycle の変換          [新規]
+  geometry/        機体諸元の読み込み                      [新規]
+  loclog/          MCAP 記録                              [書き直し]
+  locsim/          真値つき合成データ                      [書き直し]
 
 proto/             Wing から local_link.proto / raven_wing.proto を取得
 config/            geometry-*.json (機体諸元の正本)
 ```
 
-依存の向きは一本道で、循環しない。
+依存の向きは Go 版と同じ。
 
 ```
 localization  ← control, supervisor, loclog, locsim, cycle, geometry
 cycle         ← loop, winglink
-loop          ← cmd/raven-local, cmd/loc_replay
-winglink      ← cmd/raven-local
+loop          ← apps/raven-alula, apps/loc_replay
+winglink      ← apps/raven-alula
 ```
 
-- **`loop` は I/O を持たない。** だから `cmd/loc_replay` が同じ `Step` を呼べる。
-- **`winglink` は `loop` を知らない。** 通信 (下) が判断 (上) を知らない、という向き。
-- **`internal/state` は作らない。** 周期をまたぐ状態は推定器・軌道の控え・検査の窓の 3 つだけで、
-  全て `loop` が持つ。数えられることが「権限が 1 つ」の確かめ方になる。
+**各ディレクトリを CMake のターゲットにし、`target_link_libraries` で依存を宣言する。**
 
-### 4. 番人を 5 つ置く
+外部ライブラリ: Eigen (行列)、protobuf、mcap (Foxglove の C++ 実装)、GoogleTest。
+
+配布は **libstdc++ / libgcc を静的リンク**して 1 本のバイナリにする
+(開発機と機体で glibc の版が違うため)。クロスコンパイルは `aarch64-linux-gnu-g++` の
+CMake ツールチェインファイル、または機体と同じ Debian 13 arm64 のコンテナで組む。
+
+### 5. 番人を 5 つ置く
 
 Go に ArchUnit は無いが、どれも 50 行程度で書ける。**規則は負例で落ちることを確認してから入れる。**
 
@@ -146,9 +186,14 @@ Go に ArchUnit は無いが、どれも 50 行程度で書ける。**規則は�
 2 番が特に効く。Wing 側の proto はまだ変わる (`CLOCK_MONOTONIC` 化が確定している)。
 変換を 1 箇所に閉じ込めれば、その変更が `winglink` の中で終わる。
 
+**1 と 2 は C++ の方が強く守れる。** CMake のターゲット依存がそのまま依存グラフなので、
+宣言していないターゲットには**リンクできない**。protobuf をリンクするターゲットを `winglink` だけに
+限れば、他から include しても**ビルドが通らない。**Go の import 規則は後付けの検査だが、
+CMake では物理的に不可能になる。
+
 5 番は bit 一致ではなく許容つきで比べる (CPU が違うと落ちるため)。
 
-### 5. 速度・加速度の制限器は状態を持たない
+### 6. 速度・加速度の制限器は状態を持たない
 
 Wing が毎周期 `state.applied_velocity` (直前に MainBoard へ送った速度) をくれるので、
 制限器を `(目標, applied_velocity, 上限, dt)` の純粋関数にする。
@@ -189,15 +234,20 @@ Wing が毎周期 `state.applied_velocity` (直前に MainBoard へ送った速�
 
 **払うべき宿題**
 
-- `locadapter` / `receive` の入口を Wing の `WingToLocal` に差し替える
-- `timesync` は Wing が時刻を直してくれるので、大半が不要になる。何が残るか精査する
-- 番人 3 (隠れた入力) を入れると、`localization.LoadGeometryFile` が `os.Open` を呼んでいて落ちる。
-  読み込みを `geometry/` に移す
+- **書き直しの順序を守る。フィルタより先に検証を移す。**
+  書き直しの危険は行数ではなく、**実機 56 本の検証を失うこと**である。
+  だが**検証データは言語に依存しない** — MCAP / CSV の記録と公表済みの数字が、そのまま正解表になる。
+
+  1. C++ で記録を読んでリプレイを回す骨組みを作る (`apps/loc_replay`)
+  2. ESKF を移植し、既知の数字に当てる
+     (vision 300 ms 落とし 6.5〜13.2 mm / ジャイロ有無で向き 10〜31% 改善 / NEES・NIS / 56 本の指標)
+  3. 数字が合ってから、初めて UDP を繋ぐ
+
+  逆順にすると「動くが精度が出ない」を実機で追うことになる。
+- Wing から proto を取得する手順を決める (submodule か、生成物のコピーか)
+- `timesync` は Wing が時刻を直してくれるので、大半が不要。何が残るか精査する
 
 ## 未決
 
-- **言語**。Go のまま移せば約 19,500 行 (うち試験 7,200 行) がそのまま使える。
-  C++ に書き直す理由があるとすれば Eigen / Ceres を使いたい場合。決まっていない。
-  Go なら module path は `github.com/Rione/ssl-RAVEN-Alula`
 - **推定器を制御に通すこと**。今日までの実機 8 本は全て vision の生値で走っており、
   推定器は横で回していただけである。**まだ一度も閉ループで使っていない**
