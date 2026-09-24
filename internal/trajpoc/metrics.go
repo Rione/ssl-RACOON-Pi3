@@ -145,7 +145,7 @@ func WriteCSV(w io.Writer, samples []Sample) error {
 		"ref_x_mm,ref_y_mm,ref_theta_rad,ref_vx_mm_s,ref_vy_mm_s,ref_omega_rad_s,"+
 		"cmd_world_vx_mm_s,cmd_world_vy_mm_s,cmd_omega_rad_s,cmd_body_vx_mm_s,cmd_body_vy_mm_s,"+
 		"near_goal,pred_x_mm,pred_y_mm,pred_theta_rad,wheel_fl_rad_s,wheel_bl_rad_s,wheel_br_rad_s,wheel_fr_rad_s,"+
-		"imu_valid,imu_yaw_rate_rad_s,imu_accel_x_m_s2,imu_accel_y_m_s2,"+
+		"imu_valid,imu_yaw_rate_rad_s,imu_accel_x_m_s2,imu_accel_y_m_s2,battery_v,"+
 		"est_valid,est_x_mm,est_y_mm,est_theta_rad,est_vx_mm_s,est_vy_mm_s,est_omega_rad_s,est_gyro_bias_rad_s,est_health"); err != nil {
 		return err
 	}
@@ -163,13 +163,13 @@ func WriteCSV(w io.Writer, samples []Sample) error {
 		if s.NearGoal {
 			ng = 1
 		}
-		if _, err := fmt.Fprintf(w, "%.4f,%.4f,%.1f,%d,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%d,%.1f,%.1f,%.4f,%.2f,%.2f,%.2f,%.2f,%d,%.4f,%.3f,%.3f,%d,%.1f,%.1f,%.5f,%.1f,%.1f,%.4f,%.5f,%s\n",
+		if _, err := fmt.Fprintf(w, "%.4f,%.4f,%.1f,%d,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%.4f,%.1f,%.1f,%d,%.1f,%.1f,%.4f,%.2f,%.2f,%.2f,%.2f,%d,%.4f,%.3f,%.3f,%.2f,%d,%.1f,%.1f,%.5f,%.1f,%.1f,%.4f,%.5f,%s\n",
 			s.T, s.TV, s.Age*1000, held, s.Pose.X*1000, s.Pose.Y*1000, s.Pose.Theta,
 			s.Ref.Pose.X*1000, s.Ref.Pose.Y*1000, s.Ref.Pose.Theta, s.Ref.VelWorld.X*1000, s.Ref.VelWorld.Y*1000, s.Ref.YawRate,
 			s.CmdWorld.X*1000, s.CmdWorld.Y*1000, s.CmdOmega, s.CmdBody.X*1000, s.CmdBody.Y*1000,
 			ng, s.Pred.X*1000, s.Pred.Y*1000, s.Pred.Theta,
 			s.Wheels[0], s.Wheels[1], s.Wheels[2], s.Wheels[3],
-			imu, s.ImuYawRate, s.ImuAccelX, s.ImuAccelY,
+			imu, s.ImuYawRate, s.ImuAccelX, s.ImuAccelY, s.BatteryV,
 			est, s.Est.Pose.X*1000, s.Est.Pose.Y*1000, s.Est.Pose.Theta,
 			s.Est.VelBody.X*1000, s.Est.VelBody.Y*1000, s.Est.YawRate, s.Est.GyroBias, s.Est.Health); err != nil {
 			return err

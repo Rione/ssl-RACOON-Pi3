@@ -146,7 +146,11 @@ func runCSV(pattern, geomPath, visionDelay string, rearAngle float64, compare, q
 		if !r.hasWheels || len(r.wheels) < 200 || len(r.vision) < 100 {
 			continue
 		}
-		fmt.Printf("\n--- %s ---\n", filepath.Base(r.path))
+		if r.battery > 0 {
+			fmt.Printf("\n--- %s (電池 %.1f V) ---\n", filepath.Base(r.path), r.battery)
+		} else {
+			fmt.Printf("\n--- %s (電池 不明: 2026-09-24 より前の記録) ---\n", filepath.Base(r.path))
+		}
 		d, err := resolveVisionDelay(visionDelay, r.wheels, r.vision, kin, cfg.Geometry)
 		if err != nil {
 			return err

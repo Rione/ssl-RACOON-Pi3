@@ -24,6 +24,9 @@ import (
 //	pose_*          vision で見た姿勢 (生値、mm と rad)
 //	wheel_*_rad_s   STM から届いた 4 輪の回転速度 (17 本のみ)
 //	imu_*           STM から届いた IMU (2026-09 以降の記録のみ)
+//	battery_v       電池電圧 [V] (2026-09-24 以降の記録のみ)。
+//	                指令から動き出しまでの遅れが電圧で変わるので、
+//	                記録どうしを比べるときは必ず突き合わせる。
 //
 // 同じ撮影が複数行に出るので、vision は tv_s で重複を落とす。
 
@@ -36,6 +39,8 @@ type poCRun struct {
 	hasWheels bool
 	// hasImu は IMU の列があったか。古い記録には無い。
 	hasImu bool
+	// battery は記録中の電池電圧 [V] の平均。0 なら列が無い (2026-09-24 より前の記録)。
+	battery float64
 }
 
 func readPoCCSV(path string) (*poCRun, error) {
@@ -78,6 +83,8 @@ func readPoCCSV(path string) (*poCRun, error) {
 	}
 
 	out := &poCRun{path: path, hasWheels: hasWheels, hasImu: hasImu}
+	var battSum float64
+	var battN int
 	lastTv := math.NaN()
 	for {
 		rec, err := r.Read()
@@ -134,6 +141,11 @@ func readPoCCSV(path string) (*poCRun, error) {
 			}
 		}
 
+		if v := get("battery_v"); !math.IsNaN(v) && v > 0 {
+			battSum += v
+			battN++
+		}
+
 		tv := get("tv_s")
 		if !math.IsNaN(tv) && tv != lastTv {
 			lastTv = tv
@@ -146,6 +158,9 @@ func readPoCCSV(path string) (*poCRun, error) {
 				})
 			}
 		}
+	}
+	if battN > 0 {
+		out.battery = battSum / float64(battN)
 	}
 	sort.Slice(out.wheels, func(i, j int) bool { return out.wheels[i].wheelStamp < out.wheels[j].wheelStamp })
 	sort.Slice(out.vision, func(i, j int) bool { return out.vision[i].arrival < out.vision[j].arrival })

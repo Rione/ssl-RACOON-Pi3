@@ -19,6 +19,14 @@ type VisionSource func() (pose localization.Pose2, capture localization.Stamp, o
 // 記録するだけで制御には使わない (スリップの切り分け用、traj-poc-log §5-16)。
 type WheelSource func() [4]float64
 
+// BatterySource は STM から届いた最新の電池電圧 [V] を返す。
+//
+// **記録に残すために要る。** 指令から動き出しまでの遅れは電圧で変わるので
+// (docs/traj-poc-log.md §5-12)、電圧を残していない記録は後から解釈できない。
+// 2026-09-24 に「電池交換で追従が悪化した」かどうかを確かめられず、
+// 移植の正解表としても使えないことが分かったので足した。
+type BatterySource func() (volts float64, ok bool)
+
 // ImuSource は STM から届いた最新の IMU を返す (ヨーの角速度 [rad/s]、機体座標の加速度 [m/s^2])。
 // IMU の無いファームでは ok=false。記録するだけで制御には使わない。
 type ImuSource func() (yawRate, accelX, accelY float64, ok bool)
@@ -57,6 +65,7 @@ type Sample struct {
 	Wheels                           [4]float64 // その周期に読んだ車輪の回転速度 [rad/s] (FL, BL, BR, FR)
 	ImuValid                         bool       // その周期に IMU が読めたか
 	ImuYawRate, ImuAccelX, ImuAccelY float64    // [rad/s], [m/s^2] (機体座標)
+	BatteryV                         float64    // その周期の電池電圧 [V] (0 なら読めていない)
 	// 自己位置推定の出力 (横で回しているだけ。制御には使っていない)
 	Est      localization.Estimate
 	EstValid bool
@@ -74,6 +83,7 @@ type Driver struct {
 	now    Clock
 	wheels WheelSource                  // nil なら記録も検査もしない
 	imu    ImuSource                    // nil なら記録しない
+	batt   BatterySource                // nil なら記録しない
 	est    *localization.Estimator      // nil なら回さない。横で回して記録するだけ (制御には使わない)
 	estTV  float64                      // 推定器に渡した最後の撮影時刻
 	check  *supervisor.WheelVisionCheck // 車輪と vision の食い違いの検査 (wheels があるとき)
@@ -125,6 +135,13 @@ func (d *Driver) SetEstimator(e *localization.Estimator) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.est, d.estTV = e, math.Inf(-1)
+}
+
+// SetBatterySource は電池電圧の読み出しを登録する (記録用)。Arm の前に呼ぶ。
+func (d *Driver) SetBatterySource(b BatterySource) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.batt = b
 }
 
 // SetImuSource は IMU の読み出しを登録する (記録用)。Arm の前に呼ぶ。
@@ -268,6 +285,11 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	s := Sample{T: t, TV: (capture - d.t0).Seconds(), Age: age, Capture: capture, Pose: pose}
 	if d.imu != nil {
 		s.ImuYawRate, s.ImuAccelX, s.ImuAccelY, s.ImuValid = d.imu()
+	}
+	if d.batt != nil {
+		if v, ok := d.batt(); ok {
+			s.BatteryV = v
+		}
 	}
 	// **車輪は推定器に渡す前に読む。** 順番を逆にすると、推定器は毎周期
 	// 「4 輪とも 0 rad/s」を受け取り、「止まっている」と信じ込む。

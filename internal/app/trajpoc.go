@@ -162,6 +162,11 @@ func runTrajPoC(done <-chan struct{}, myID uint32) {
 	driver.SetImuSource(func() (float64, float64, float64, bool) {
 		return state.ImuYawRateRadS, state.ImuAccelXMS2, state.ImuAccelYMS2, state.ImuValid
 	})
+	// 電池電圧も記録する。指令から動き出しまでの遅れが電圧で変わるので、
+	// 電圧を残していない記録は後から解釈できない (docs/traj-poc-log.md §5-26)。
+	driver.SetBatterySource(func() (float64, bool) {
+		return state.BatteryVolts, state.BatteryValid
+	})
 
 	log.Printf("[TRAJ] waiting for vision of %s %d ...", team, visionID)
 	deadline := time.Now().Add(5 * time.Second)
