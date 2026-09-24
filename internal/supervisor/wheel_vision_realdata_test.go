@@ -25,6 +25,12 @@ func TestWheelVisionCheckOnRealRuns(t *testing.T) {
 		{"trajpoc-20260922-131559-ffp_vlead-hermite.csv", false, "正常なその場回転"},
 		{"trajpoc-20260922-125411-ffp_vlead-hermite.csv", true, "vision の模様が別の物 (円)"},
 		{"trajpoc-20260922-125417-ffp_vlead-hermite.csv", true, "vision の模様が別の物 (その場回転)"},
+		// 2026-09-24: 床の traction が落ちて激しく滑った 2 本。車輪は回っているのに
+		// 機体が進まず、食いついた瞬間に飛び出す。**これは止めてはいけない。**
+		// 模様の取り違えは vision/車輪の比が 0 のまま続くのに対し、滑りは一瞬沈んで戻る
+		// (実測の中央値 0.81〜0.95)。区別できないと、滑りやすい場所で走れなくなる。
+		{"trajpoc-20260924-075514-ffp_vlead.csv", false, "床が滑る (中止された回)"},
+		{"trajpoc-20260924-075522-ffp_vlead.csv", false, "床が滑る (完走した回)"},
 	} {
 		path := filepath.Join("..", "..", "trajpoc-dataset", "poc", c.file)
 		samples, err := readCheckSamples(path)

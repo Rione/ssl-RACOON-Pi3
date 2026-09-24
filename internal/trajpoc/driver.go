@@ -253,6 +253,16 @@ func (d *Driver) abort(reason string) {
 	d.state, d.reason = Aborted, reason
 }
 
+// abortAt は止めた理由と**その周期の標本**を残す。
+//
+// 標本を残さずに止めると、記録には「止まる直前まで」しか入らない。
+// **一番見たい周期が落ちる**ので、後から記録を流し直しても中止を再現できない
+// (2026-09-24、床が滑って中止した回で実際にこれで詰まった)。
+func (d *Driver) abortAt(reason string, s Sample) {
+	d.abort(reason)
+	d.samples = append(d.samples, s)
+}
+
 // OverrideVelocity は link.VelocityOverride を満たす。ロボット系の
 // VelX, VelY [mm/s] と VelAng [mrad/s]。Running 以外は 0 を出し続ける
 // (指令を返さなくなると通常経路へ戻り、直前の速度が残っていると走り去るため)。
@@ -306,7 +316,7 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	if d.wheels != nil {
 		// vision が古いときは下の「止まって待つ」に任せる (止まった vision と比べると必ず食い違う)
 		if reason, bad := d.check.Step(t, dt, s.Wheels, pose, s.TV); bad && age <= d.cfg.VisionHoldAge {
-			d.abort(reason)
+			d.abortAt(reason, s)
 			return 0, 0, 0, true
 		}
 	}
@@ -336,7 +346,7 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	var vel localization.Vec2
 	var omega float64
 	if cmd, phase, err := d.ctl.Calculate(est); err != nil {
-		d.abort(fmt.Sprintf("%s: %v", supervisor.CalculationFailed, err))
+		d.abortAt(fmt.Sprintf("%s: %v", supervisor.CalculationFailed, err), s)
 		return 0, 0, 0, true
 	} else if phase == control.Tracking {
 		vel = localization.Rotate(pose.Theta, cmd.VelBody)
