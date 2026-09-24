@@ -38,6 +38,7 @@ import (
 
 func main() {
 	logPath := flag.String("log", "", "実機で録った MCAP ファイル")
+	robotFeed := flag.Bool("robotfeed", false, "実機と同じ順・同じ刻印で推定器に入れる (車輪/IMU を 8 ms 戻し、vision は撮影時刻、順は 車輪→IMU→vision)")
 	csvGlob := flag.String("csv", "", "軌道追従 PoC の CSV (glob 可、例 trajpoc-dataset/poc/*.csv)")
 	geomPath := flag.String("geometry", "", "機体パラメータの JSON (省略すると既定値)")
 	visionDelay := flag.String("vision-delay", "auto", "vision の定数遅延: auto | 0 | 12ms のような値")
@@ -64,7 +65,7 @@ func main() {
 			wheelNoise: *wheelNoise, wheelCoef: *wheelCoef,
 			accelNoise: *accelNoise, angAccelNoise: *angAccelNoise,
 		}
-		err = runCSV(*csvGlob, *geomPath, *visionDelay, *rearAngle, *compare, *qsweep, *dropout, over)
+		err = runCSV(*csvGlob, *geomPath, *visionDelay, *rearAngle, *compare, *qsweep, *dropout, *robotFeed, over)
 	} else {
 		err = run(*logPath, *geomPath, *visionDelay, *rearAngle, *compare)
 	}
@@ -100,7 +101,7 @@ func (o overrides) apply(c *localization.Config) {
 	}
 }
 
-func runCSV(pattern, geomPath, visionDelay string, rearAngle float64, compare, qsweep, dropout bool, over overrides) error {
+func runCSV(pattern, geomPath, visionDelay string, rearAngle float64, compare, qsweep, dropout, robotFeed bool, over overrides) error {
 	cfg, err := loadConfig(geomPath)
 	if err != nil {
 		return err
@@ -168,6 +169,14 @@ func runCSV(pattern, geomPath, visionDelay string, rearAngle float64, compare, q
 			if err := reportComparison(cfg, ws, r.vision, nil, vcomp); err != nil {
 				return err
 			}
+			continue
+		}
+		if robotFeed {
+			rep, err := replayRobotFeed(cfg, ws, r.vision, vcomp)
+			if err != nil {
+				return err
+			}
+			rep.print(filepath.Base(r.path) + " [実機と同じ給餌]")
 			continue
 		}
 		rep, err := replay(cfg, ws, r.vision, vcomp, nil)
@@ -610,12 +619,25 @@ type report struct {
 	noiseOK    bool
 	nis        float64
 	nisOK      bool
+
+	// vision を基準にした向きのずれ。**疑似真値 (RTS スムーザ) はフィルタと
+	// 同じモデルを共有するので、系統的な誤りには両方が同じだけ外れて見えない。**
+	// vision は外から来る唯一の基準なので、発散の検出にはこちらを見る。
+	// (精度の指標ではない: フィルタは vision を使って更新しているため)
+	headVsVision    float64 // 平均の絶対値 [rad]
+	headVsVisionMax float64
+	posVsVision     float64 // [m]
+	visionRefs      int
 }
 
 func (r report) print(label string) {
 	fmt.Printf("\n=== replay: %s ===\n", label)
 	fmt.Printf("vs RTS smoother       pos RMSE %.2f mm (max %.2f), heading RMSE %.3f deg\n",
 		r.posRMSE*1000, r.posMax*1000, r.headRMSE*180/math.Pi)
+	if r.visionRefs > 0 {
+		fmt.Printf("vs VISION             heading %.2f deg (max %.2f), pos %.2f mm  [%d frames]\n",
+			r.headVsVision*180/math.Pi, r.headVsVisionMax*180/math.Pi, r.posVsVision*1000, r.visionRefs)
+	}
 	fmt.Printf("consistency (NEES)    %.2f vs the smoother (ideal 3.0, but the smoother shares the model)\n", r.meanNEES)
 	if r.nisOK {
 		fmt.Printf("consistency (NIS)     %.2f  **ideal 3.0, needs no ground truth -- tune Q and R with this**\n", r.nis)
@@ -732,6 +754,39 @@ func replay(cfg localization.Config, ws []sample, vs []visionSample, delay time.
 		}
 		n++
 	}
+	// vision を基準にした比較。各 vision の撮影時刻に最も近い推定と突き合わせる。
+	{
+		var hsum, psum float64
+		var hmax float64
+		var hn int
+		oi := 0
+		for _, v := range vs {
+			for oi+1 < len(out) && out[oi+1].Stamp <= v.stamp {
+				oi++
+			}
+			if oi >= len(out) {
+				break
+			}
+			e := out[oi]
+			if d := e.Stamp.Sub(v.stamp); d > 20*time.Millisecond || d < -20*time.Millisecond {
+				continue
+			}
+			dth := math.Abs(localization.AngleDiff(e.Pose.Theta, v.pose.Theta))
+			hsum += dth
+			if dth > hmax {
+				hmax = dth
+			}
+			psum += math.Hypot(e.Pose.X-v.pose.X, e.Pose.Y-v.pose.Y)
+			hn++
+		}
+		if hn > 0 {
+			rep.headVsVision = hsum / float64(hn)
+			rep.headVsVisionMax = hmax
+			rep.posVsVision = psum / float64(hn)
+			rep.visionRefs = hn
+		}
+	}
+
 	if n > 0 {
 		rep.posRMSE = math.Sqrt(sum / float64(n))
 		rep.headRMSE = math.Sqrt(headSum / float64(n))
@@ -796,6 +851,75 @@ func reportQSweep(cfg localization.Config, ws []sample, vs []visionSample, delay
 	return nil
 }
 
+// replayRobotFeed は実機 (internal/trajpoc の feedEstimator) と同じ順・同じ刻印で入れる。
+//
+// 実機: 車輪と IMU を「今 - 8 ms」、vision は撮影時刻。順は 車輪 → IMU → vision。
+// 通常のリプレイ: 到着順に vision → 車輪 → IMU で、刻印は記録のまま。
+//
+// **同じ記録でも、この違いだけで推定が壊れるかを確かめるためにある。**
+func replayRobotFeed(cfg localization.Config, ws []sample, vs []visionSample,
+	delay time.Duration) (report, error) {
+	opts := localization.EstimatorOptions{VisionDelayComp: delay}
+	est, err := localization.NewEstimator(cfg, opts)
+	if err != nil {
+		return report{}, err
+	}
+	const spiPeriod = 8 * time.Millisecond
+
+	out := make([]localization.Estimate, 0, len(ws))
+	vi := 0
+	var lastTV localization.Stamp = -1
+	for _, w := range ws {
+		at := w.wheelStamp - localization.Stamp(spiPeriod)
+		est.AddWheel(localization.WheelSample{Stamp: at, Omega: w.wheels})
+		if w.hasImu {
+			im := w.imu
+			im.Stamp = at
+			est.AddImu(im)
+		}
+		// 実機は「その周期に見えている vision」を、撮影時刻が進んだときだけ入れる。
+		for vi < len(vs) && vs[vi].arrival <= w.wheelStamp {
+			vi++
+		}
+		if vi > 0 {
+			v := vs[vi-1]
+			if v.stamp > lastTV {
+				lastTV = v.stamp
+				est.AddVision(localization.VisionPose{Stamp: v.stamp, Pose: v.pose, Confidence: 1})
+			}
+		}
+		out = append(out, est.Current())
+	}
+
+	rep := report{stats: est.Stats(), slipRate: est.SlipRate()}
+	var hsum, psum, hmax float64
+	var hn, oi int
+	for _, v := range vs {
+		for oi+1 < len(out) && out[oi+1].Stamp <= v.stamp {
+			oi++
+		}
+		if oi >= len(out) {
+			break
+		}
+		e := out[oi]
+		if d := e.Stamp.Sub(v.stamp); d > 20*time.Millisecond || d < -20*time.Millisecond {
+			continue
+		}
+		dth := math.Abs(localization.AngleDiff(e.Pose.Theta, v.pose.Theta))
+		hsum += dth
+		if dth > hmax {
+			hmax = dth
+		}
+		psum += math.Hypot(e.Pose.X-v.pose.X, e.Pose.Y-v.pose.Y)
+		hn++
+	}
+	if hn > 0 {
+		rep.headVsVision, rep.headVsVisionMax = hsum/float64(hn), hmax
+		rep.posVsVision, rep.visionRefs = psum/float64(hn), hn
+	}
+	return rep, nil
+}
+
 // reportComparison は機能ごとの効果を並べる。
 //
 // **効いていないものを黙って既定にしないため**の表である
@@ -826,7 +950,8 @@ func reportComparison(cfg localization.Config, ws []sample, vs []visionSample,
 	}
 
 	fmt.Printf("\n=== feature comparison (vs a FIXED RTS smoother reference) ===\n")
-	fmt.Printf("%-24s %10s %10s %10s %8s %8s %6s\n", "variant", "pos RMSE", "pos max", "head RMSE", "NEES", "NIS", "slip")
+	fmt.Printf("%-24s %12s %10s %10s %8s %6s\n",
+		"variant", "head vs VISION", "pos RMSE", "head RMSE", "NEES", "slip")
 	for _, v := range variants {
 		c := cfg
 		v.mutate(&c)
@@ -838,9 +963,9 @@ func reportComparison(cfg localization.Config, ws []sample, vs []visionSample,
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%-24s %8.2f mm %8.2f mm %8.3f dg %8.2f %8.2f %6.3f\n",
-			v.name, rep.posRMSE*1000, rep.posMax*1000, rep.headRMSE*180/math.Pi,
-			rep.meanNEES, rep.nis, rep.slipRate)
+		fmt.Printf("%-24s %9.2f dg %7.2f mm %8.3f dg %8.2f %6.3f\n",
+			v.name, rep.headVsVision*180/math.Pi, rep.posRMSE*1000,
+			rep.headRMSE*180/math.Pi, rep.meanNEES, rep.slipRate)
 	}
 	return nil
 }

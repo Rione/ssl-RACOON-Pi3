@@ -269,12 +269,19 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 	if d.imu != nil {
 		s.ImuYawRate, s.ImuAccelX, s.ImuAccelY, s.ImuValid = d.imu()
 	}
+	// **車輪は推定器に渡す前に読む。** 順番を逆にすると、推定器は毎周期
+	// 「4 輪とも 0 rad/s」を受け取り、「止まっている」と信じ込む。
+	// そうなるとジャイロの信号は行き場を失ってバイアスに吸い込まれ、
+	// 角速度が 0 に張り付く。**CSV には正しい車輪が残るのでリプレイでは再現しない。**
+	// 実機のその場回転で向きが 22 度ずれていた原因がこれだった。
+	if d.wheels != nil {
+		s.Wheels = d.wheels()
+	}
 	if d.est != nil {
 		d.feedEstimator(now, capture, pose, s)
 		s.Est, s.EstValid = d.est.Current(), true
 	}
 	if d.wheels != nil {
-		s.Wheels = d.wheels()
 		// vision が古いときは下の「止まって待つ」に任せる (止まった vision と比べると必ず食い違う)
 		if reason, bad := d.check.Step(t, dt, s.Wheels, pose, s.TV); bad && age <= d.cfg.VisionHoldAge {
 			d.abort(reason)
