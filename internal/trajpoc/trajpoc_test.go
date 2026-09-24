@@ -561,3 +561,70 @@ func TestDriverRecordsTheEstimator(t *testing.T) {
 		t.Errorf("estimator did not get both observations: %+v", st)
 	}
 }
+
+// 推定器には「その周期に読んだ車輪」が渡らなければならない。
+//
+// **これは実機で踏んだ不具合の番人である。** feedEstimator が s.Wheels を
+// 埋める前に呼ばれていたため、推定器は毎周期「4 輪とも 0」を受け取り、
+// 「止まっている」と信じ込んでいた。ジャイロの信号は行き場を失って
+// バイアスに吸い込まれ、角速度が 0 に張り付く。その場回転で推定の向きが
+// vision から 22 度ずれ、その推定で制御すると 76 度まで発散した
+// (2026-09-24、docs/traj-poc-log.md)。
+//
+// **記録した CSV には正しい車輪が残るので、リプレイでは再現しない。**
+// だから指標を見る試験では捕まらない。ここで直接押さえる。
+func TestEstimatorGetsThisCyclesWheels(t *testing.T) {
+	gen := DefaultGenConfig()
+	gen.Shape, gen.Size, gen.Speed, gen.Accel = "turn", 1.5708, 1.0, 3.0
+	rel, err := Generate(gen)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DefaultConfig()
+	cfg.Method = MethodFFPVelLead
+	r := newSim(localization.Pose2{X: 0.5, Y: 0.2, Theta: 0.1})
+	d, err := NewDriver(rel, cfg, r.vision, r.clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	est, err := localization.NewEstimator(localization.DefaultConfig(), localization.EstimatorOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.SetEstimator(est)
+	// ジャイロは真の角速度をそのまま返す (実機の IMU の代わり)。
+	d.SetImuSource(func() (float64, float64, float64, bool) { return r.omega, 0, 0, true })
+	run(t, r, d, 60)
+
+	// 回っている間、推定の角速度がジャイロに追従しているか。
+	// 車輪が 0 のまま渡ると、ここが 0 に張り付く。
+	var ratio []float64
+	var headErr []float64
+	for _, s := range d.Samples() {
+		if !s.EstValid || math.Abs(s.ImuYawRate) < 0.5 {
+			continue
+		}
+		ratio = append(ratio, math.Abs(s.Est.YawRate)/math.Abs(s.ImuYawRate))
+		headErr = append(headErr, math.Abs(localization.AngleDiff(s.Est.Pose.Theta, s.Pose.Theta)))
+	}
+	if len(ratio) < 30 {
+		t.Fatalf("回転中の標本が %d 個しかない。軌道か試験の組み立てがおかしい", len(ratio))
+	}
+	var rs, hs float64
+	for i := range ratio {
+		rs += ratio[i]
+		hs += headErr[i]
+	}
+	meanRatio, meanHead := rs/float64(len(ratio)), hs/float64(len(headErr))*180/math.Pi
+	t.Logf("回転中 %d 標本: est_omega/gyro %.2f, 推定の向きのずれ %.2f deg", len(ratio), meanRatio, meanHead)
+
+	// 実機では 0.02 (壊れている) と 1.00 (直っている) がはっきり分かれた。
+	if meanRatio < 0.7 {
+		t.Errorf("推定の角速度がジャイロに追従していない (比 %.2f)。"+
+			"feedEstimator が車輪を読む前に呼ばれていないか確かめること", meanRatio)
+	}
+	if meanHead > 5 {
+		t.Errorf("推定の向きが vision から %.1f deg ずれている", meanHead)
+	}
+}
