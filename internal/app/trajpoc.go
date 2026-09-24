@@ -40,6 +40,7 @@ var trajPoc struct {
 	visionID int
 	csvDir   string
 	nearGoal bool
+	useEst   bool
 }
 
 // PoC で許す上限。フラグの打ち間違いで暴走させないための天井。
@@ -59,6 +60,7 @@ func registerTrajPocFlags() {
 	flag.Float64Var(&trajPoc.fence, "trajfence", d.Fence, "軌道が収まるべき開始位置からの半径 [m]")
 	flag.IntVar(&trajPoc.visionID, "trajvisionid", -1, "SSL-Vision 上の自機 ID (カバーの模様)。-1 なら DIP スイッチの ID")
 	flag.StringVar(&trajPoc.csvDir, "trajcsv", ".", "記録 CSV の出力先ディレクトリ。空なら書かない")
+	flag.BoolVar(&trajPoc.useEst, "trajest", false, "追従器に渡す姿勢を vision の生の値ではなく自己位置推定の出力にする (比較用)")
 	flag.BoolVar(&trajPoc.nearGoal, "trajneargoal", false, "軌道が終わった後の寄せ方を √ブレーキ則 + 不感帯にする。判断はスミス予測の位置 (vision + まだ効いていない指令)、最低速度 30 mm/s")
 }
 
@@ -73,6 +75,7 @@ func trajPocConfig() (trajpoc.Config, error) {
 	}
 	cfg.Kp, cfg.Kth, cfg.Lead = trajPoc.kp, trajPoc.kth, trajPoc.leadMs/1000
 	cfg.MaxSpeed, cfg.Fence = trajPoc.maxSpeed, trajPoc.fence
+	cfg.UseEstimate = trajPoc.useEst
 	cfg.NearGoal.Enabled = trajPoc.nearGoal
 	return cfg, nil
 }
@@ -262,6 +265,14 @@ func finishTrajPoC(driver *trajpoc.Driver, cfg trajpoc.Config, code int) {
 		if path := driver.Path(); len(path) > 0 {
 			m := trajpoc.ComputeMetrics(samples, path)
 			fmt.Print(m.Format(cfg, st, reason))
+			// 推定器が実機で何を適用したかを出す。0 更新や大量の棄却は、
+			// 指標を見ているだけでは分からない (推定を制御に通して初めて効いてくる)。
+			if es, ok := driver.EstimatorStats(); ok {
+				fmt.Printf("estimator          wheel %d, vision %d, gyro %d, zupt %d | "+
+					"too old: wheel %d vision %d, future %d, resets %d, slip %d\n",
+					es.WheelUpdates, es.VisionUpdates, es.GyroUpdates, es.ZuptUpdates,
+					es.WheelTooOld, es.VisionTooOld, es.VisionFuture, es.Resets, es.SlipDetections)
+			}
 		} else {
 			fmt.Printf("=== trajpoc: did not start (%s: %s) ===\n", st, reason)
 		}

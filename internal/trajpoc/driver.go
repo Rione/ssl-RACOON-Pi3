@@ -291,13 +291,19 @@ func (d *Driver) OverrideVelocity() (velX, velY, velAng int16, ok bool) {
 		return 0, 0, 0, true
 	}
 
-	// 走っている間は本番の追従器に任せる。姿勢は vision の生の値 (推定器はまだ通さない)。
+	// 走っている間は本番の追従器に任せる。
 	//
 	// 時刻は「撮影時刻」ではなく「今」を渡す。control は estimate.Stamp で参照を引くので、
 	// 撮影時刻を渡すと vision の古さのぶんだけ参照まで古くなり、そのまま追従の遅れになる。
-	// 本番は推定器が今まで進めた姿勢を出すので、この差は無くなる。
-	est := localization.Estimate{Stamp: now, Pose: pose, Health: localization.HealthOK}
-	bodyTheta := pose.Theta
+	//
+	// 姿勢は既定では vision の生の値。-trajest で推定器の出力に替える。
+	// **時刻は両方とも「今」のままにする。**変える条件を「追従器が見る姿勢」だけに絞るため。
+	ctlPose := pose
+	if d.cfg.UseEstimate && s.EstValid {
+		ctlPose = s.Est.Pose
+	}
+	est := localization.Estimate{Stamp: now, Pose: ctlPose, Health: localization.HealthOK}
+	bodyTheta := ctlPose.Theta
 	var vel localization.Vec2
 	var omega float64
 	if cmd, phase, err := d.ctl.Calculate(est); err != nil {
@@ -342,6 +348,15 @@ func (d *Driver) feedEstimator(now, capture localization.Stamp, pose localizatio
 		d.estTV = s.TV
 		d.est.AddVision(localization.VisionPose{Stamp: capture, Pose: pose, Confidence: 1})
 	}
+}
+
+// EstimatorStats は実機で推定器が何を適用したかを返す (0 更新・大量の棄却を見つけるため)。
+// 推定を制御に通すときに、入力が本当に届いているかを外から確かめられるようにしてある。
+func (d *Driver) EstimatorStats() (localization.EstimatorStats, bool) {
+	if d.est == nil {
+		return localization.EstimatorStats{}, false
+	}
+	return d.est.Stats(), true
 }
 
 // refAt は指標に使う参照。軌道の前後では端の点で静止しているものとして扱う
