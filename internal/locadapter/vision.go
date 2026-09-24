@@ -139,11 +139,14 @@ func NewVisionReceiver(clock *loclog.Clock, sync timesync.Provider, rec *loclog.
 		sync = timesync.ArrivalProvider{}
 	}
 	return &VisionReceiver{
-		cfg:      cfg,
-		clock:    clock,
-		sync:     sync,
-		rec:      rec,
-		out:      make(chan localization.VisionPose, 1),
+		cfg:   cfg,
+		clock: clock,
+		sync:  sync,
+		rec:   rec,
+		// **バッファ 1 では足りない。** vision は約 116 Hz、吸い上げるのは
+		// SPI の 125 Hz なので、ジッタのたびに落ちる。8 周期ぶん持たせる。
+		// それでも詰まったら捨てて数える (計画 §7.2)。
+		out:      make(chan localization.VisionPose, 8),
 		lastSeen: make(map[uint32]uint32),
 		seenAny:  make(map[uint32]bool),
 	}

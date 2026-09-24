@@ -8,8 +8,13 @@ import (
 )
 
 const (
+	// 生の値で持っていた古い閾値 (0.1 V/LSB 前提)。判定は BatteryVolts と下の V 版で行う。
 	BatteryLowThreshold      = 140
 	BatteryCriticalThreshold = 135
+
+	// 電圧の閾値 [V]。STM の送り方 (倍率) が世代で違うので、生の値ではなくボルトで比べる。
+	BatteryLowVolts      = float64(BatteryLowThreshold) / 10
+	BatteryCriticalVolts = float64(BatteryCriticalThreshold) / 10
 
 	Port          = ":9191"
 	UDPRecvPort   = 20011
@@ -85,6 +90,13 @@ type RecvData struct {
 	FrWheelSpeed      int16
 	Footer            uint8
 	Reserved          uint8
+
+	// IMU (MainBoard_V26_2 以降の 21 バイトのフレームだけ。HasIMU が false なら 0)。
+	HasIMU      bool
+	AccelXRaw   int16 // 1 LSB = 1 mg
+	AccelYRaw   int16
+	YawRateRaw  int16 // 900 LSB = 1 rad/s
+	YawAngleRaw int16 // 10000 LSB = 1 rad (STM 側の Madgwick。参考値)
 }
 
 var (
@@ -94,7 +106,33 @@ var (
 	FrWheelSpeedRadS float32
 )
 
+// BatteryVolts は STM から届いた電圧 [V]。板ごとの倍率を当てはめた後の値で、
+// 生の Recvdata.Volt ではなくこちらで判定する (SPI_PROTOCOL.md の倍率が世代で違うため)。
+var BatteryVolts float64
+
+// BatteryValid は STM から一度でも電圧を受け取れたか。
+// 受け取る前 (フレームの形を見分けている間など) は電池の判定をしない。
+var BatteryValid bool
+
+// IMU の SI に直した値 (SPI の周期ごとに更新。IMU の無いファームでは 0 のまま)。
+// ImuValid が false のときは中身を使わないこと。
+var (
+	ImuValid       bool
+	ImuAccelXMS2   float64 // 機体座標の前後 [m/s^2]
+	ImuAccelYMS2   float64 // 機体座標の左右 [m/s^2]
+	ImuYawRateRadS float64 // ヨーの角速度 [rad/s] (STM 側でバイアスを引いたもの)
+	ImuYawRad      float64 // STM 側の Madgwick の姿勢角 [rad] (参考。制御には使わない)
+)
+
 var IsControlByRobotMode bool
+
+// TrajPoCActive は時刻つき軌道追従の PoC が走っている間 true。
+// その間は PC からの DATA (速度・キック) を反映しない (docs/traj-poc.md)。
+var TrajPoCActive atomic.Bool
+
+// SPIRxValidAt は STM から最後に正しいフレームを受け取った時刻 (UnixNano)。0 なら一度も無い。
+// PoC は STM が応答していないと走り出さない (車輪の値が 0 のまま更新されず、車輪と vision の検査も効かないため)。
+var SPIRxValidAt atomic.Int64
 
 type SendPayload struct {
 	VelX          int16
@@ -235,6 +273,23 @@ var (
 	LocVisionIface string
 	// LocIdent は機体パラメータ同定の加振を実行するか。ロボットが自走する。
 	LocIdent bool
+	// NoSelfUpdate は起動時の自己更新を行わないか。
+	//
+	// **実験中は必ず立てること。** 自己更新は新しいリリースを見つけると
+	// 実行中のバイナリを上書きして os.Exit するので、走行中に突然死ぬ。
+	// 開発ビルドは擬似バージョン (v0.0.0-<日時>-<hash>) になるが、
+	// これは isDevVersion の判定をすり抜ける (先頭が "-0." ではないため)。
+	NoSelfUpdate bool
+	// LocEstimate は自己位置推定を機上で実際に回すか。
+	//
+	// **走行機能には一切影響しない。** 推定は観測に徹し、結果はログと
+	// HTTP に出すだけ。制御へ繋ぐのはプロトコルが決まってから (計画 P6)。
+	LocEstimate bool
+	// LocGeometry は機体パラメータの JSON パス。空なら既定値。
+	LocGeometry string
+	// LocVisionDelayMs は vision の定数遅延の補償 [ms]。
+	// loc_replay が測った値を入れる。
+	LocVisionDelayMs float64
 )
 
 // localizationShutdown は計測ログを閉じる後始末。

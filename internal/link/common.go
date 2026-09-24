@@ -110,11 +110,14 @@ func PrepareHardwareTx(sendbytes []byte) []byte {
 }
 
 func CheckBatteryStatus() {
-	if state.Recvdata.Volt < uint8(state.BatteryCriticalThreshold) {
+	if !state.BatteryValid {
+		return // まだ一度も STM から受け取れていない
+	}
+	if state.BatteryVolts < state.BatteryCriticalVolts {
 		state.IsRobotError = true
 		state.RobotErrorCode = 2
 		state.RobotErrorMessage = "バッテリ電圧異常(回路故障の可能性)"
-	} else if state.Recvdata.Volt < uint8(state.BatteryLowThreshold) {
+	} else if state.BatteryVolts < state.BatteryLowVolts {
 		state.IsRobotError = true
 		state.RobotErrorCode = 2
 		state.RobotErrorMessage = "バッテリ電圧異常"

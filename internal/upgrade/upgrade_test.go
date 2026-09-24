@@ -71,3 +71,22 @@ func TestValidateReleaseBinary(t *testing.T) {
 		})
 	}
 }
+
+func TestIsDevVersion(t *testing.T) {
+	for v, want := range map[string]bool{
+		"":                                     true,
+		"(devel)":                              true,
+		"unknown":                              true,
+		"v1.0.1-0.20260623143125-eab18fdc67ec": true,
+		"v0.0.0-20260922095038-df5ecf39d720":   true, // タグが無いリポジトリ
+		"v0.0.0-20260922095038-df5ecf39d720+dirty": true,
+		"v7.0.0+dirty": true,
+		"v7.0.0":       false,
+		"v6.2.4":       false,
+		"7.0.1":        false,
+	} {
+		if got := isDevVersion(v); got != want {
+			t.Errorf("isDevVersion(%q) = %v, want %v", v, got, want)
+		}
+	}
+}

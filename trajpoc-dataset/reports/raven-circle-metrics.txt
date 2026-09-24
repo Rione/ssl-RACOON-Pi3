@@ -1,0 +1,11 @@
+=== trajpoc result: method=raven_oc interp=hermite Kp=3.00 Kth=4.00 lead=30ms ===
+end: done (RAVEN optimal-control tracker (/home/zyro/ssl_ws/java/ssl-RAVEN/trajpoc-dataset/raven/raven-20260922-233139-id15.csv))
+vision frames 527, held cycles 0, vision age median 4 ms
+position error     RMS   31.7 mm   max   67.6 mm
+contour error      RMS   21.5 mm   max   62.5 mm   (distance to the path, time ignored)
+along-track mean    -16.0 mm   lag 43 ms   (negative mean = behind the reference)
+cross-track        RMS   24.3 mm
+heading error      RMS   5.83 deg  max  23.80 deg
+final (arrival)      10.3 mm    5.80 deg
+command accel RMS    4.74 m/s^2  (how jerky the command was)
+after the end      heading swing ±5.75 deg, max translation command 222 mm/s  (near-goal=false)

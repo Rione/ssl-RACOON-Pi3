@@ -237,16 +237,17 @@ func TestV1RejectsNonZeroPadding(t *testing.T) {
 	}
 }
 
-// IMU プロファイルはバイト 12-18 を使うので、同期の判別力が落ちる。
-// その事実をテストで可視化しておく (計画 §12-B3 の依頼根拠)。
+// IMU プロファイルはバイト 12-19 をすべて使うので、フレームの同期はヘッダとフッタだけが頼りになる。
+// その事実をテストで可視化しておく (実機のファーム MainBoard_V26_2 がこの形。誤同期を避けるため、
+// Pi 側は前回と同じ位置を優先して読む: internal/rock5a/spi.go)。
 func TestImuProfileLosesSyncStrength(t *testing.T) {
 	v1 := mustDecoder(t, "rock5a-v1").Profile()
 	v2 := mustDecoder(t, "rock5a-v2-imu").Profile()
 	if v1.SyncStrength() != 9 {
 		t.Errorf("rock5a-v1 sync strength = %d, want 9 (header + footer + 7 padding)", v1.SyncStrength())
 	}
-	if v2.SyncStrength() != 3 {
-		t.Errorf("rock5a-v2-imu sync strength = %d, want 3 (header + footer + 1 padding)", v2.SyncStrength())
+	if v2.SyncStrength() != 2 {
+		t.Errorf("rock5a-v2-imu sync strength = %d, want 2 (header + footer only)", v2.SyncStrength())
 	}
 	if v2.SyncStrength() >= v1.SyncStrength() {
 		t.Error("expected the IMU profile to have weaker frame sync than the current one")
@@ -263,20 +264,20 @@ func TestImuProfileScales(t *testing.T) {
 		t.Fatal("IMU profile should expose gyro and accel")
 	}
 
-	frame := make([]byte, 20)
-	frame[0], frame[19] = 0xFF, 0xAA
-	// MPU6500 ±250 dps: 131 LSB/(deg/s)。131 LSB = 1 deg/s。
-	put16(frame, 12, 131)
-	// ±2 g: 16384 LSB/g。16384 LSB = 1 g = 9.80665 m/s^2。
-	put16(frame, 14, 16384)
-	put16(frame, 16, -16384)
+	// 実機のファーム (ssl-Circuit MainBoard_V26_2 src/unit/robot.c) の並び:
+	// 21 バイト、12 から 加速度 X [1 mg/LSB]・加速度 Y・ヨーの角速度 [900 LSB = 1 rad/s]・姿勢角。
+	frame := make([]byte, 21)
+	frame[0], frame[20] = 0xFF, 0xAA
+	put16(frame, 12, 1000)  // 1 g
+	put16(frame, 14, -1000) // -1 g
+	put16(frame, 16, 900)   // 1 rad/s
 
 	v := d.NewValues()
 	if err := d.Decode(frame, 0, v); err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	if got, want := v.At(b.GyroZ), math.Pi/180; math.Abs(got-want) > 1e-6 {
-		t.Errorf("gyroZ = %v rad/s, want %v (1 deg/s)", got, want)
+	if got, want := v.At(b.GyroZ), 1.0; math.Abs(got-want) > 1e-6 {
+		t.Errorf("gyroZ = %v rad/s, want %v", got, want)
 	}
 	if got, want := v.At(b.AccelX), 9.80665; math.Abs(got-want) > 1e-3 {
 		t.Errorf("accelX = %v m/s^2, want %v (1 g)", got, want)

@@ -84,6 +84,10 @@ func RunClient(done <-chan struct{}, myID uint32, ip string) {
 				if state.ConnectionState != state.StateConnected || !isSamePcIP(addr) {
 					break
 				}
+				if state.TrajPoCActive.Load() {
+					// PoC 中は PC の指令を混ぜない (速度は PoC が出し、キックは撃たない)。
+					break
+				}
 
 				state.LastRecvTime.Store(time.Now())
 				state.LastCmdRecvTime.Store(time.Now())

@@ -26,9 +26,9 @@ type Sample struct {
 }
 
 var (
-	mu       sync.RWMutex
-	samples  []Sample
-	enabled  bool
+	mu      sync.RWMutex
+	samples []Sample
+	enabled bool
 )
 
 // SetEnabled toggles recording and the graph HTTP server target.

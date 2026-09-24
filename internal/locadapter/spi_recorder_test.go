@@ -168,16 +168,18 @@ func TestSPIRecorderImuProfile(t *testing.T) {
 	r, _ := newTestSPIRecorder(t, "rock5a-v2-imu")
 	now := time.Now()
 
-	f := make([]byte, 20)
-	f[0], f[19] = 0xFF, 0xAA
+	// 実機のファーム (ssl-Circuit MainBoard_V26_2) の並び: 21 バイト、
+	// 12 から 加速度 X [1 mg/LSB]・加速度 Y・ヨーの角速度 [900 LSB = 1 rad/s]・姿勢角。
+	f := make([]byte, 21)
+	f[0], f[20] = 0xFF, 0xAA
 	f[1] = 140
 	put := func(off int, v int16) {
 		f[off] = byte(uint16(v) & 0xFF)
 		f[off+1] = byte(uint16(v) >> 8)
 	}
-	put(12, 131)    // 1 deg/s
-	put(14, 16384)  // 1 g
-	put(16, -16384) // -1 g
+	put(12, 1000)  // 1 g
+	put(14, -1000) // -1 g
+	put(16, 900)   // 1 rad/s
 
 	s := r.Record(txFrame(0, 0, 0, 0), f, now, now.Add(time.Microsecond))
 	if !s.Valid {
@@ -186,8 +188,8 @@ func TestSPIRecorderImuProfile(t *testing.T) {
 	if !s.IMU.HasGyro || !s.IMU.HasAccel {
 		t.Fatal("IMU profile did not produce IMU values")
 	}
-	if math.Abs(s.IMU.GyroZ-math.Pi/180) > 1e-6 {
-		t.Errorf("gyroZ = %v rad/s, want %v", s.IMU.GyroZ, math.Pi/180)
+	if math.Abs(s.IMU.GyroZ-1.0) > 1e-6 {
+		t.Errorf("gyroZ = %v rad/s, want 1.0", s.IMU.GyroZ)
 	}
 	if math.Abs(s.IMU.Accel.X-9.80665) > 1e-3 || math.Abs(s.IMU.Accel.Y+9.80665) > 1e-3 {
 		t.Errorf("accel = %+v, want (9.80665, -9.80665)", s.IMU.Accel)

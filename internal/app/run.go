@@ -83,7 +83,13 @@ func Run() {
 	state.Version = upgrade.GetVersion()
 	log.Printf("RACOON-Pi3 version: %s", state.Version)
 
-	go upgrade.ConfirmAndSelfUpdate()
+	// PoC の最中に自己更新が走ると、上書き後に os.Exit で即死し、STM は最後の速度で走り続ける。
+	if state.NoSelfUpdate || trajPoc.enabled {
+		// 実験中に走行中のバイナリが上書きされて os.Exit するのを防ぐ。
+		log.Println("Self-update disabled (-noupdate / -trajpoc)")
+	} else {
+		go upgrade.ConfirmAndSelfUpdate()
+	}
 
 	initBoard()
 	defer cleanupBoard()
@@ -100,8 +106,13 @@ func Run() {
 
 	done := make(chan struct{})
 
-	go receive.RunClient(done, myID, ip)
-	go mw.RunServer(done, myID)
+	// PoC は RAVEN を使わない。接続処理 (DISCOVER / OFFER / OK_PC) と状態の送信を起動しない。
+	// 起動すると、同じ DIP の ID を持つ別の機体と RAVEN の上で取り合いになる
+	// (RAVEN は ID ごとに 1 台しか持たず、1.5 s 以内の DISCOVER は送信元が違っても捨てる)。
+	if !trajPoc.enabled {
+		go receive.RunClient(done, myID, ip)
+		go mw.RunServer(done, myID)
+	}
 	go runLink(done, myID)
 	go kickCheck(done)
 	go runGPIO(done)
@@ -115,6 +126,10 @@ func Run() {
 	if state.DebugWheelGraph {
 		wheelgraph.SetEnabled(true)
 		go wheelgraph.RunServer(done)
+	}
+
+	if trajPoc.enabled {
+		go runTrajPoC(done, myID)
 	}
 
 	select {}
@@ -135,6 +150,13 @@ func parseFlags() {
 	flag.StringVar(&state.LocVisionAddr, "visionaddr", "", "SSL-Visionのマルチキャスト (既定: 224.5.23.2:10694)")
 	flag.StringVar(&state.LocVisionIface, "visioniface", "", "SSL-Vision受信に使うNIC名。空ならシステム既定")
 	flag.BoolVar(&state.LocIdent, "locident", false, "機体パラメータ同定の加振を実行する。ロボットが自走するので注意")
+	flag.BoolVar(&state.NoSelfUpdate, "noupdate", false, "起動時の自己更新を行わない (実験中は必ず指定する)")
+	flag.BoolVar(&state.LocEstimate, "locestimate", false, "自己位置推定を機上で回す (走行機能には影響しない)")
+	flag.StringVar(&state.LocGeometry, "locgeometry", "", "機体パラメータの JSON パス (既定: 組み込みの有効値)")
+	flag.Float64Var(&state.LocVisionDelayMs, "locvisiondelay", 0, "vision の定数遅延の補償 [ms] (loc_replay が測った値)")
+
+	// 時刻つき軌道追従の PoC (docs/traj-poc.md)。
+	registerTrajPocFlags()
 	flag.Parse()
 
 	if state.DebugSerial {
@@ -160,6 +182,9 @@ func parseFlags() {
 	}
 	if state.LocIdent {
 		log.Println("Localization: identification excitation enabled (-locident); the robot will drive itself")
+	}
+	if state.LocEstimate {
+		log.Println("Localization: the estimator runs on the robot (-locestimate); see [EST] lines and /localization")
 	}
 }
 
@@ -220,6 +245,11 @@ func interfaceLinkUp(iface net.Interface) bool {
 }
 
 func setupSignalHandler() {
+	// PoC は自分で 0 を送ってから終える。ここで即座に os.Exit すると、
+	// STM は最後の速度で走り続ける (指令途絶のタイムアウトが無い)。
+	if trajPoc.enabled {
+		return
+	}
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 	go func() {

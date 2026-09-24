@@ -19,8 +19,8 @@ import (
 )
 
 var (
-	pythonCmd   *exec.Cmd
-	robotID     uint32
+	pythonCmd *exec.Cmd
+	robotID   uint32
 )
 
 func Run(done <-chan struct{}, myID uint32) {
@@ -127,6 +127,8 @@ func handleRequest(conn net.Conn) {
 		handleRelaxColor(conn, pathParts)
 	case "powershutdown":
 		handlePowerShutdown(conn)
+	case "localization":
+		handleLocalization(conn)
 	default:
 		handleStatus(conn)
 	}
@@ -301,22 +303,32 @@ type statusWheelSpeedRaw struct {
 	FR int16 `json:"fr"`
 }
 
+// statusIMU は STM から届く IMU (MainBoard_V26_2 以降)。取り付けの向きの確認にも使う。
+type statusIMU struct {
+	Valid   bool    `json:"valid"`
+	YawRate float64 `json:"yawRate_rad_s"` // 反時計回りが正のはず (実機で確認する)
+	AccelX  float64 `json:"accelX_m_s2"`   // 機体の前が +x のはず
+	AccelY  float64 `json:"accelY_m_s2"`   // 機体の左が +y のはず
+	Yaw     float64 `json:"yaw_rad"`       // STM 側の Madgwick (起動時からの相対角。参考値)
+}
+
 type statusResponse struct {
-	RobotID                 uint32              `json:"robotId"`
-	ConnectionState         string              `json:"connectionState"`
-	IsNewRobot              bool                `json:"isNewRobot"`
-	Volt                    float32             `json:"VOLT"`
-	IsDetectPhotoSensor     bool                `json:"ISDETECTPHOTOSENSOR"`
-	IsDetectDribblerSensor  bool                `json:"ISDETECTDRIBBLERSENSOR"`
-	IsNewDribbler           bool                `json:"ISNEWDRIBBLER"`
-	CapPower                uint8               `json:"capPower"`
-	WheelSpeedMS            statusWheelSpeedMS  `json:"wheelSpeedMS"`
-	WheelSpeedRaw           statusWheelSpeedRaw `json:"wheelSpeedRaw"`
-	Ball                    statusBallResponse  `json:"ball"`
-	Thresholds              state.Adjustment    `json:"thresholds"`
-	Error                   bool                `json:"ERROR"`
-	ErrorCode               int                 `json:"ERRORCODE"`
-	ErrorMessage            string              `json:"ERRORMESSAGE"`
+	RobotID                uint32              `json:"robotId"`
+	ConnectionState        string              `json:"connectionState"`
+	IsNewRobot             bool                `json:"isNewRobot"`
+	Volt                   float32             `json:"VOLT"`
+	IsDetectPhotoSensor    bool                `json:"ISDETECTPHOTOSENSOR"`
+	IsDetectDribblerSensor bool                `json:"ISDETECTDRIBBLERSENSOR"`
+	IsNewDribbler          bool                `json:"ISNEWDRIBBLER"`
+	CapPower               uint8               `json:"capPower"`
+	WheelSpeedMS           statusWheelSpeedMS  `json:"wheelSpeedMS"`
+	WheelSpeedRaw          statusWheelSpeedRaw `json:"wheelSpeedRaw"`
+	IMU                    statusIMU           `json:"imu"`
+	Ball                   statusBallResponse  `json:"ball"`
+	Thresholds             state.Adjustment    `json:"thresholds"`
+	Error                  bool                `json:"ERROR"`
+	ErrorCode              int                 `json:"ERRORCODE"`
+	ErrorMessage           string              `json:"ERRORMESSAGE"`
 }
 
 func connectionStateName(s int) string {
@@ -355,7 +367,7 @@ func buildStatusResponse() statusResponse {
 		RobotID:                robotID,
 		ConnectionState:        connectionStateName(connState),
 		IsNewRobot:             state.IsNewRobot,
-		Volt:                   float32(state.Recvdata.Volt) / 10.0,
+		Volt:                   float32(state.BatteryVolts),
 		IsDetectPhotoSensor:    detectPhotoSensor,
 		IsDetectDribblerSensor: detectDribblerSensor,
 		IsNewDribbler:          isNewDribbler,
@@ -365,6 +377,13 @@ func buildStatusResponse() statusResponse {
 			BL: state.BlWheelSpeedRadS,
 			BR: state.BrWheelSpeedRadS,
 			FR: state.FrWheelSpeedRadS,
+		},
+		IMU: statusIMU{
+			Valid:   state.ImuValid,
+			YawRate: state.ImuYawRateRadS,
+			AccelX:  state.ImuAccelXMS2,
+			AccelY:  state.ImuAccelYMS2,
+			Yaw:     state.ImuYawRad,
 		},
 		WheelSpeedRaw: statusWheelSpeedRaw{
 			FL: state.Recvdata.FlWheelSpeed,

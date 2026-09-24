@@ -22,4 +22,9 @@ const (
 	EstimateUnavailable Reason = "estimate_unavailable"
 	CalculationFailed   Reason = "calculation_failed"
 	TrajectoryInactive  Reason = "trajectory_inactive"
+	// 以下は実機の走行で見つかった止めどころ (docs/traj-poc-log.md §5-18, 19)。
+	OutOfFence          Reason = "out_of_fence"          // 開始位置から決めた半径を出た
+	WheelVisionMismatch Reason = "wheel_vision_mismatch" // 車輪は動いたのに vision が動かない (模様の取り違え)
+	LinkStale           Reason = "link_stale"            // STM から正しいフレームが届かない
+	VisionLost          Reason = "vision_lost"           // vision が古い / 来ない
 )

@@ -20,8 +20,24 @@ import (
 var (
 	isSPIFrameValid   bool = true
 	prevSPIFrameValid bool = true
-	spiRxWindow       [SPIFrameSize * 2]byte
+	spiRxWindow       [MaxSPIFrameSize * 2]byte
+
+	// 今のフレームの形。STM のファームの世代で 20 / 21 バイトと違うので、
+	// 有効なフレームが続けて取れなければもう一方へ切り替えて探す (spiLayoutProbeCycles)。
+	curLayout      = spiLayoutV1
+	lastFrameAt    = -1 // 前回フレームが見つかった位置 (誤同期を避けるため優先する)
+	battery        batteryFilter
+	layoutMisses   int
+	layoutSettled  bool
+	layoutAnnounce bool
 )
+
+// spiLayoutProbeCycles は、この回数だけ続けてフレームが取れなければ形を切り替える。
+//
+// 8 ms 周期なので約 1.2 s。**STM 側は通信が 750 ms 進まないと強制的に再同期する**
+// (SPI_PROTOCOL.md §1)。長さが噛み合っていない間は STM もずれるので、こちらの切り替えが
+// それより速いと、STM が立て直す前に形を変えてしまい、いつまでも噛み合わない。
+const spiLayoutProbeCycles = 150
 
 func RunSPI(done <-chan struct{}, myID uint32) {
 	if _, err := host.Init(); err != nil {
@@ -60,11 +76,11 @@ func RunSPI(done <-chan struct{}, myID uint32) {
 func processSPICommunication(conn spi.Conn) {
 	sendbytes := link.PrepareSendData()
 	payload := link.PrepareHardwareTx(sendbytes)
-	if len(payload) > SPIPayloadSize {
-		payload = payload[:SPIPayloadSize]
+	if len(payload) > curLayout.PayloadSize {
+		payload = payload[:curLayout.PayloadSize]
 	}
-	tx := wrapSPIFrame(payload)
-	rx := make([]byte, SPIFrameSize)
+	tx := wrapSPIFrame(curLayout, payload)
+	rx := make([]byte, curLayout.FrameSize)
 
 	// 転送時刻は Tx の直前・直後の中点とする。time.Ticker の公称 8 ms は、
 	// 受信が遅れると間隔を詰めたりティックを落としたりするので信用しない
@@ -79,18 +95,29 @@ func processSPICommunication(conn spi.Conn) {
 	// 計測基盤へ渡す。登録が無ければ何もしない。
 	link.NotifySPI(tx, rx, before, after)
 
-	pushSPIRxWindow(spiRxWindow[:], rx)
-	frameOffset, frameErr := resolveSPIRxFrame(spiRxWindow[:])
+	window := spiRxWindow[:curLayout.FrameSize*2]
+	pushSPIRxWindow(curLayout, window, rx)
+	frameOffset, frameErr := resolveSPIRxFrame(curLayout, window, lastFrameAt)
+	if frameErr == nil {
+		lastFrameAt = frameOffset
+	} else {
+		lastFrameAt = -1
+	}
 	isSPIFrameValid = frameErr == nil
 	handleSPIFrameValidationChange(frameErr)
+	updateSPILayout(frameErr == nil)
 
 	if frameErr == nil {
-		state.Recvdata = parseRecvBufAt(spiRxWindow[:], frameOffset)
+		state.Recvdata = parseRecvBufAt(curLayout, window, frameOffset)
+		state.SPIRxValidAt.Store(after.UnixNano())
 
 		state.FlWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.FlWheelSpeed)
 		state.BlWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.BlWheelSpeed)
 		state.BrWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.BrWheelSpeed)
 		state.FrWheelSpeedRadS = motorRawToWheelMS(state.Recvdata.FrWheelSpeed)
+		applyImu(state.Recvdata)
+		state.BatteryVolts = battery.update(batteryVolts(curLayout, state.Recvdata.Volt))
+		state.BatteryValid = true
 
 		if state.DebugWheelGraph {
 			wheelgraph.Record(
@@ -105,18 +132,18 @@ func processSPICommunication(conn spi.Conn) {
 	if state.DebugSerial {
 		if frameErr != nil {
 			log.Printf("[SPI RX] FRAME ERROR: %v", frameErr)
-			log.Printf("[SPI RX] full (%dB): % x", SPIFrameSize, rx)
+			log.Printf("[SPI RX] full (%dB): % x", curLayout.FrameSize, rx)
 		} else {
 			log.Printf("[SPI RX] Raw: % 02X", rx[1:1+SPIRecvSize])
 			log.Printf("[SPI RX] Volt: %d (%.1fV), SensorInfo: 0b%08b, CapPower: %d",
-				state.Recvdata.Volt, float32(state.Recvdata.Volt)*0.1, state.Recvdata.SensorInformation, state.Recvdata.CapPower)
+				state.Recvdata.Volt, state.BatteryVolts, state.Recvdata.SensorInformation, state.Recvdata.CapPower)
 			log.Printf("[SPI RX] Wheel(raw) FL: %d, BL: %d, BR: %d, FR: %d",
 				state.Recvdata.FlWheelSpeed, state.Recvdata.BlWheelSpeed, state.Recvdata.BrWheelSpeed, state.Recvdata.FrWheelSpeed)
 			log.Printf("[SPI RX] Wheel(m/s) FL: %.3f, BL: %.3f, BR: %.3f, FR: %.3f",
 				state.FlWheelSpeedRadS, state.BlWheelSpeedRadS, state.BrWheelSpeedRadS, state.FrWheelSpeedRadS)
-			log.Printf("[SPI RX] full (%dB): % x", SPIFrameSize, rx)
+			log.Printf("[SPI RX] full (%dB): % x", curLayout.FrameSize, rx)
 		}
-		log.Printf("[SPI TX] full (%dB): % x", SPIFrameSize, tx)
+		log.Printf("[SPI TX] full (%dB): % x", curLayout.FrameSize, tx)
 		link.LogSendData(sendbytes)
 		if state.DryRun {
 			link.LogSendData(payload)
@@ -128,17 +155,48 @@ func processSPICommunication(conn spi.Conn) {
 	prevSPIFrameValid = isSPIFrameValid
 }
 
-func resolveSPIRxFrame(window []byte) (offset int, err error) {
-	offset = findSPIFrame(window)
+// updateSPILayout は、フレームが取れない状態が続いたらもう一方の形へ切り替える。
+// 新旧のファームが混ざっていても、機体ごとに勝手に合う形に落ち着く。
+func updateSPILayout(ok bool) {
+	if ok {
+		layoutMisses = 0
+		if !layoutSettled {
+			layoutSettled = true
+			log.Printf("SPI frame layout: %s", curLayout.Name)
+		}
+		return
+	}
+	layoutMisses++
+	if layoutMisses < spiLayoutProbeCycles {
+		return
+	}
+	layoutMisses = 0
+	layoutSettled = false
+	if curLayout.FrameSize == spiLayoutV1.FrameSize {
+		curLayout = spiLayoutV2
+	} else {
+		curLayout = spiLayoutV1
+	}
+	if !layoutAnnounce {
+		layoutAnnounce = true
+		log.Printf("SPI: no valid frame for %d cycles; trying %s", spiLayoutProbeCycles, curLayout.Name)
+	}
+	for i := range spiRxWindow {
+		spiRxWindow[i] = 0
+	}
+}
+
+func resolveSPIRxFrame(l spiLayout, window []byte, prefer int) (offset int, err error) {
+	offset = findSPIFrame(l, window, prefer)
 	if offset < 0 {
 		return 0, fmt.Errorf("no valid frame in %d-byte window", len(window))
 	}
 	return offset, nil
 }
 
-func parseRecvBufAt(rx []byte, frameOffset int) state.RecvData {
+func parseRecvBufAt(l spiLayout, rx []byte, frameOffset int) state.RecvData {
 	off := frameOffset + 1
-	return state.RecvData{
+	d := state.RecvData{
 		Volt:              rx[off+0],
 		SensorInformation: rx[off+1],
 		CapPower:          rx[off+2],
@@ -147,6 +205,29 @@ func parseRecvBufAt(rx []byte, frameOffset int) state.RecvData {
 		BrWheelSpeed:      int16(rx[off+7]) | int16(rx[off+8])<<8,
 		FrWheelSpeed:      int16(rx[off+9]) | int16(rx[off+10])<<8,
 	}
+	if l.HasIMU {
+		// 12〜19 バイト目: 加速度 X・Y [mg]、ヨーの角速度、Madgwick の姿勢角
+		// (ssl-Circuit MainBoard_V26_2 src/unit/robot.c の Robot_RockBuildTxPacket)。
+		d.HasIMU = true
+		d.AccelXRaw = int16(rx[off+11]) | int16(rx[off+12])<<8
+		d.AccelYRaw = int16(rx[off+13]) | int16(rx[off+14])<<8
+		d.YawRateRaw = int16(rx[off+15]) | int16(rx[off+16])<<8
+		d.YawAngleRaw = int16(rx[off+17]) | int16(rx[off+18])<<8
+	}
+	return d
+}
+
+// applyImu は受け取った IMU の生値を SI に直して state に置く。
+func applyImu(d state.RecvData) {
+	state.ImuValid = d.HasIMU
+	if !d.HasIMU {
+		return
+	}
+	sx := float64(d.AccelXRaw) * spiAccelPerLSBG * gravityMS2
+	sy := float64(d.AccelYRaw) * spiAccelPerLSBG * gravityMS2
+	state.ImuAccelXMS2, state.ImuAccelYMS2 = bodyFromImuAccel(sx, sy)
+	state.ImuYawRateRadS = float64(d.YawRateRaw) * spiYawRatePerLSBRad
+	state.ImuYawRad = float64(d.YawAngleRaw) * spiYawPerLSBRad
 }
 
 func motorRawToWheelMS(raw int16) float32 {
